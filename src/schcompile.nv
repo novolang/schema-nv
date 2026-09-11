@@ -1,0 +1,329 @@
+// schcompile.nv — a schema document turned into something that can
+// validate, and the registry of documents its `$ref`s reach.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// **THE LOAD-BEARING INTERFACE OF THE PACKAGE IS `external_refs`.**
+// JSON Schema's `$ref` names a URI, and resolving one means READING a
+// document — which is exactly what a `core` package may not do.  So the
+// core says what it needs and the host fetches it:
+//
+//   let wanted = schcompile.external_refs(doc)     // core: "these URIs"
+//   ... the host reads each one, however it likes ...
+//   let reg = schcompile.with_document(reg, uri, fetched)
+//   let schema = schcompile.compile_with(doc, reg)
+//
+// That is `docs/publishing.md` § How a `core` package takes bytes from
+// its host, in its third shape — the core asks, the host performs — and
+// it is the same shape tera-nv's template set has for `{% extends %}`.
+// It is also what makes this package SAFE by construction: a schema
+// from outside cannot make a program fetch a URL, because the program
+// decides what it fetches and this package has no `[net]` to do it
+// with.
+//
+// COMPILE ONCE, VALIDATE MANY.  Everything expensive and everything
+// fallible happens here: the `$ref` graph is resolved, every `pattern`
+// is checked, every keyword's value is checked for shape.  A
+// `SchSchema` is then a value a caller keeps and hands to
+// `schvalidate.validate` a million times, and that function cannot
+// fail.  The agent tier is why: a tool whose arguments are described by
+// a schema validates one per call and should not re-read the schema
+// each time.
+//
+// `$dynamicRef` IS IMPLEMENTED AND IS SCOPED.  It resolves against the
+// dynamic scope — the chain of schema resources entered on the way to
+// the reference — which is what makes a recursive schema extensible.
+// What it does NOT do is cross a `$ref` into a document the registry
+// does not hold, for the same reason `$ref` does not.
+// `uses_dynamic_ref` says whether a compiled schema has any, because a
+// caller that knows it has none can reason about its schemas much more
+// simply.
+
+use std.json
+use scherror
+
+// A compiled schema: a value a caller keeps.
+//
+// Deliberately thin in public: the four fields are the questions a
+// caller actually asks about a schema it did not write, and the tree
+// underneath them is not something anything outside should match on.
+pub struct SchSchema
+    // The schema's own `$id`, or `""` when it declared none.
+    id: Str
+    // How many asserting keywords the schema uses, across every
+    // subschema.  What a caller bounding an untrusted schema reads —
+    // a schema is cheap to write and `allOf` of a thousand is not.
+    keyword_count: Int
+    // Whether any subschema uses `unevaluatedItems` or
+    // `unevaluatedProperties`.  A schema without them validates with a
+    // cheaper walk, because nothing has to carry the annotation set.
+    uses_unevaluated: Bool
+    // Whether any subschema uses `$dynamicRef`.
+    uses_dynamic_ref: Bool
+
+// The documents a compile may resolve a `$ref` into.
+//
+// A value, built up by the caller, so that two schemas in one program
+// can see different sets — which is what a program validating both its
+// own configuration and somebody else's payloads wants.
+pub struct SchRegistry
+    // How many documents it holds.  Public so a caller can assert on
+    // it; the documents themselves are reached by `document_uris`.
+    count: Int
+
+// What a compile will not do.
+pub struct SchOptions
+    // How deeply subschemas may nest.
+    max_depth: Int
+    // Refuse a keyword 2020-12 does not define, instead of collecting
+    // it as an annotation.  FALSE by default, because the
+    // specification's rule is that an unknown keyword is an annotation
+    // — but a caller validating its OWN schemas usually wants the typo
+    // caught, and `"requred": ["a"]` silently passing everything is the
+    // most common JSON Schema bug there is.
+    refuse_unknown_keywords: Bool
+    // Treat `format` as an assertion even where the schema does not
+    // declare the format-assertion vocabulary.  FALSE by default,
+    // which is 2020-12 § 7.  A format nobody registered stays an
+    // annotation either way.
+    assert_formats: Bool
+    // The dialect to assume for a schema with no `$schema`.
+    // `schvocab.DIALECT_2020_12` by default.
+    default_dialect: Str
+
+// The defaults: 128 deep, unknown keywords collected, `format` an
+// annotation, 2020-12 assumed.
+//
+// ```novo
+// use schcompile
+//
+// fn main() [io]
+//     println("${schcompile.default_options().max_depth}")
+// ```
+pub fn default_options() -> SchOptions []
+    todo("schema-nv.schcompile.default_options")
+
+// An empty registry.
+//
+// ```novo
+// use schcompile
+//
+// fn main() [io]
+//     println("${schcompile.registry().count}")
+// ```
+pub fn registry() -> SchRegistry []
+    todo("schema-nv.schcompile.registry")
+
+// A registry with one more document in it, under the URI a `$ref` will
+// name.
+//
+// The URI is the caller's to choose and is not checked against the
+// document's own `$id`: a schema served from one place and mirrored at
+// another is one document with two names, and refusing the second would
+// make a mirror unusable.  A document registered twice under one URI
+// replaces the first.
+//
+// ```novo
+// use std.json
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"type\":\"string\"}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             let reg = schcompile.with_document(schcompile.registry(), "https://x/s", doc)
+//             println("${reg.count}")
+// ```
+pub fn with_document(r: SchRegistry, uri: Str, document: JsonValueH) -> SchRegistry []
+    todo("schema-nv.schcompile.with_document")
+
+// The URIs a registry holds, in the order they were added.
+//
+// ```novo
+// use std.list
+// use schcompile
+//
+// fn main() [io]
+//     println("${list.len(schcompile.document_uris(schcompile.registry()))}")
+// ```
+pub fn document_uris(r: SchRegistry) -> [Str] []
+    todo("schema-nv.schcompile.document_uris")
+
+// Every external URI a schema document's `$ref`s and `$dynamicRef`s
+// name, absolute and deduplicated.
+//
+// **The call that makes this package sans-IO.**  It reads the document
+// and answers the list of things it will need; the host fetches them,
+// however it fetches things, and registers each one.  A reference
+// inside the document itself — `#/$defs/thing` — is not in the list,
+// because nothing has to be fetched for it.
+//
+// It does not compile and it cannot fail: a `$ref` whose value is not a
+// string is skipped here and reported by `compile`, so a caller can run
+// this over a document it has not yet decided to trust.
+//
+// ```novo
+// use std.json
+// use std.list
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"\$ref\":\"https://x/other\"}")
+//         None      => println("not json")
+//         Some(doc) => println("${list.len(schcompile.external_refs(doc))}")
+// ```
+pub fn external_refs(document: JsonValueH) -> [Str] []
+    todo("schema-nv.schcompile.external_refs")
+
+// The subset of `external_refs` a registry does not yet hold.
+//
+// What a host loop calls to know whether it is finished: a fetched
+// document may itself have `$ref`s, so the loop is "ask, fetch,
+// register, ask again" until this answers empty.
+//
+// ```novo
+// use std.json
+// use std.list
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"\$ref\":\"https://x/other\"}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             let missing = schcompile.missing_refs(doc, schcompile.registry())
+//             println("${list.len(missing)}")
+// ```
+pub fn missing_refs(document: JsonValueH, r: SchRegistry) -> [Str] []
+    todo("schema-nv.schcompile.missing_refs")
+
+// Compile a schema that refers only to itself.
+//
+// The common case, and the one that needs no registry: a schema with no
+// `$ref` at all, or one whose `$ref`s are all `#/...` into its own
+// `$defs`.  An external `$ref` is `SchUnresolvedRef`.
+//
+// ```novo
+// use std.json
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"type\":\"object\",\"required\":[\"id\"]}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             match schcompile.compile(doc)
+//                 Ok(s)  => println("${s.keyword_count}")
+//                 Err(f) => println(f.schema_location)
+// ```
+pub fn compile(document: JsonValueH) -> Result<SchSchema, scherror.SchFault> []
+    todo("schema-nv.schcompile.compile")
+
+// Compile a schema whose `$ref`s reach the registry.
+//
+// ```novo
+// use std.json
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"\$ref\":\"https://x/s\"}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             match schcompile.compile_with(doc, schcompile.registry())
+//                 Ok(_)  => println("compiled")
+//                 Err(f) => println(f.schema_location)
+// ```
+pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, scherror.SchFault> []
+    todo("schema-nv.schcompile.compile_with")
+
+// Compile with options of the caller's choosing.
+//
+// ```novo
+// use std.json
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"requred\":[\"id\"]}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             var strict = schcompile.default_options()
+//             strict.refuse_unknown_keywords = true
+//             match schcompile.compile_with_options(doc, schcompile.registry(), strict)
+//                 Ok(_)  => println("compiled")
+//                 Err(f) => println(f.found)
+// ```
+pub fn compile_with_options(document: JsonValueH, r: SchRegistry,
+                            options: SchOptions) -> Result<SchSchema, scherror.SchFault> []
+    todo("schema-nv.schcompile.compile_with_options")
+
+// Every fault in a schema, rather than only the first.
+//
+// `compile` stops at the first, because a schema that does not compile
+// cannot validate anything and the first reason is the one to fix.
+// This is for a TOOL — a linter over a directory of schemas, an editor
+// showing squiggles — which wants them all in one pass and is not going
+// to run the schema either way.
+//
+// ```novo
+// use std.json
+// use std.list
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"type\":3,\"minLength\":\"x\"}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             let all = schcompile.faults(doc, schcompile.registry())
+//             println("${list.len(all)}")
+// ```
+pub fn faults(document: JsonValueH, r: SchRegistry) -> [scherror.SchFault] []
+    todo("schema-nv.schcompile.faults")
+
+// The `$id` of every schema resource inside a document, in document
+// order.
+//
+// A document may declare several — an `$id` in a `$defs` entry starts a
+// new resource — and a caller registering a bundle needs to know which
+// names it just made reachable.
+//
+// ```novo
+// use std.json
+// use std.list
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"\$id\":\"https://x/s\"}")
+//         None      => println("not json")
+//         Some(doc) => println("${list.len(schcompile.resource_ids(doc))}")
+// ```
+pub fn resource_ids(document: JsonValueH) -> [Str] []
+    todo("schema-nv.schcompile.resource_ids")
+
+// The vocabularies a document's `$vocabulary` declares as required and
+// this package does not assert.
+//
+// Empty for a schema this package can honour.  Public and separate from
+// `compile` so that a caller can DECIDE — a schema requiring the
+// content vocabulary is one this package will refuse, and a program
+// with a thousand schemas would rather sort them than discover it one
+// at a time.
+//
+// ```novo
+// use std.json
+// use std.list
+// use schcompile
+//
+// fn main() [io]
+//     match json.parse("{\"type\":\"string\"}")
+//         None      =>
+//             println("not json")
+//         Some(doc) =>
+//             let unmet = schcompile.unsupported_vocabularies(doc)
+//             println("${list.len(unmet)}")
+// ```
+pub fn unsupported_vocabularies(document: JsonValueH) -> [Str] []
+    todo("schema-nv.schcompile.unsupported_vocabularies")

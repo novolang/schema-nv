@@ -1,0 +1,146 @@
+// scherror.nv — the one fault type, and the place in the SCHEMA it
+// happened.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// A FAULT IS ABOUT THE SCHEMA; A FAILURE IS ABOUT THE INSTANCE.  The
+// two are different things and this package keeps them apart, which is
+// the decision a reader should meet first:
+//
+//   `schcompile.compile` answers `Result<SchSchema, SchFault>`.  A
+//   schema that is not a schema — `"type": 3`, a `$ref` to a document
+//   nobody registered, a `$vocabulary` this package does not implement
+//   and that the schema marked required — is a fault, once, at compile
+//   time, and the author of the schema is who hears about it.
+//
+//   `schvalidate.validate` answers a `SchOutput` and never a `Result`.
+//   An instance that does not match is not an error; it is the ANSWER,
+//   and it comes with the list of reasons.  The author of the instance
+//   is who hears about that.
+//
+// A caller compiles once and validates many times, so the expensive,
+// fallible half happens once.
+//
+// THE POSITION IS A JSON POINTER, not a byte offset, and that is the
+// difference from this lane's other three packages.  A schema arrives
+// as a parsed `JsonValueH`: there is no source text left to point into,
+// and RFC 6901 pointers are what every other JSON Schema tool reports,
+// so `/properties/age/type` is a location a reader can paste into
+// another implementation.
+
+// What was wrong with the schema, named.
+//
+// ```novo
+// use scherror
+//
+// fn main() [io]
+//     println(scherror.kind_name(SchUnresolvedRef))
+// ```
+pub enum SchFaultKind
+    // A schema that is neither an object nor a boolean.  `true` and
+    // `false` ARE schemas in 2020-12 — they match everything and
+    // nothing — and anything else is not.
+    SchNotASchema
+    // A keyword whose value is the wrong shape: `"type": 3`,
+    // `"required": "name"`, `"properties": []`.
+    SchBadKeywordValue
+    // A `type` naming something outside the seven: `"null"`,
+    // `"boolean"`, `"object"`, `"array"`, `"number"`, `"string"`,
+    // `"integer"`.
+    SchUnknownType
+    // A `$ref` or `$dynamicRef` that is not a URI reference.
+    SchBadRef
+    // A `$ref` to a document the registry does not hold.  The fault a
+    // caller answers by fetching it and registering it — which is what
+    // `schcompile.external_refs` exists to make possible before any of
+    // this runs.
+    SchUnresolvedRef
+    // A `$ref` chain that resolves to itself without ever reaching a
+    // keyword — `{"$ref": "#"}` as a whole schema.  A recursive schema
+    // that goes through `properties` or `items` is fine: it consumes
+    // instance as it goes.
+    SchRefCycle
+    // Two schemas in one document claiming the same `$id`, or an `$id`
+    // that is not an absolute URI.
+    SchBadId
+    // An `$anchor` or `$dynamicAnchor` that is not a plain name, or two
+    // with the same name in one resource.
+    SchBadAnchor
+    // A `pattern` or a `patternProperties` key that does not compile.
+    // The message carries `regex.error`'s own reason.
+    SchBadPattern
+    // A `$vocabulary` entry naming a vocabulary this package does not
+    // implement, with a value of `true` — which 2020-12 § 8.1.2 says
+    // MUST be refused rather than ignored.  A `false` entry is a
+    // vocabulary the schema says is optional, and that one is only a
+    // note.
+    SchUnsupportedVocabulary
+    // A `$schema` naming a dialect this package does not implement.
+    // 2020-12 only; 2019-09 and draft-07 are close and are not the
+    // same, and pretending otherwise is how a schema silently changes
+    // meaning.
+    SchUnknownDialect
+    // The schema nests deeper than `SchOptions.max_depth`.
+    SchDepthLimit
+    // A keyword this package does not implement, where the options say
+    // to refuse rather than to ignore.  JSON Schema's own rule is that
+    // an unknown keyword is an annotation and is ignored; a caller
+    // validating its OWN schemas usually wants the typo caught instead,
+    // and `SchOptions.refuse_unknown_keywords` is that choice.
+    SchUnknownKeyword
+
+// A fault: what, where in the schema, and what the value was.
+pub struct SchFault
+    kind: SchFaultKind
+    // An RFC 6901 JSON Pointer into the schema document —
+    // `/properties/age/type` — so a message can be pasted into another
+    // tool.  `""` for a fault about the document as a whole.
+    schema_location: Str
+    // The absolute location, when the schema resource has an `$id`:
+    // `https://example.com/s#/properties/age/type`.  Empty when the
+    // document declared none.
+    absolute_location: Str
+    // What was actually there, rendered — `"3"`, `"[]"`, the `$ref`
+    // that did not resolve.  Rendered rather than held as a value so
+    // that a fault can be logged without keeping the document alive.
+    found: Str
+
+// A fault from its parts.
+//
+// ```novo
+// use scherror
+//
+// fn main() [io]
+//     let f = scherror.fault(SchUnknownType, "/type", "", "integerish")
+//     println(f.schema_location)
+// ```
+pub fn fault(kind: SchFaultKind, schema_location: Str, absolute_location: Str,
+             found: Str) -> SchFault []
+    todo("schema-nv.scherror.fault")
+
+// The kind's name, in the spelling a message uses.
+//
+// Lower case with hyphens — `"unresolved-ref"`,
+// `"unsupported-vocabulary"` — and stable across releases, because a
+// program's own error text and its test assertions quote them.
+//
+// ```novo
+// use scherror
+//
+// fn main() [io]
+//     println(scherror.kind_name(SchBadPattern))
+// ```
+pub fn kind_name(kind: SchFaultKind) -> Str []
+    todo("schema-nv.scherror.kind_name")
+
+// One line about the fault, with its location in it.
+//
+// ```novo
+// use scherror
+//
+// fn main() [io]
+//     let f = scherror.fault(SchNotASchema, "/items", "", "3")
+//     println(scherror.message(f))
+// ```
+pub fn message(f: SchFault) -> Str []
+    todo("schema-nv.scherror.message")

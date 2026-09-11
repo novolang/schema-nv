@@ -1,0 +1,265 @@
+// schvalidate_tests.nv — the API suite for validating an instance, the
+// reasons it did not match, and the format registry.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: schema-nv.<module>.<fn>`.
+//
+// THE CASES ARE THE JSON-Schema-Test-Suite's SHAPE.  That suite is a
+// list of `{schema, tests: [{data, valid}]}` groups, one file per
+// keyword, and it is the oracle every validator is measured against.
+// Each test below is one such group written out, so the generated run
+// that replaces them when the implementation lands is the same
+// assertions with more of them.
+//
+// THE OUTPUT CASES ARE THIS PACKAGE'S OWN CLAIM.  The suite only
+// records whether an instance was valid; it says nothing about what a
+// validator should SAY when it was not.  "Validation with reasons" is
+// the package's row on the grid, so the reasons — three locations and a
+// keyword on every failure, all of them rather than the first — are
+// what the middle tests here pin down.
+
+use std.test
+use std.list
+use std.json
+use schcompile
+use schvalidate
+use schformat
+
+fn doc(text: Str) -> JsonValueH [io]
+    match json.parse(text)
+        Some(v) => v
+        None    =>
+            test.assert(false)
+            json.null()
+
+fn compiled(text: Str) -> schcompile.SchSchema [io]
+    match schcompile.compile(doc(text))
+        Ok(s)  => s
+        Err(_) =>
+            test.assert(false)
+            SchSchema { id: "", keyword_count: 0, uses_unevaluated: false,
+                        uses_dynamic_ref: false }
+
+fn check(schema: Str, instance: Str) -> schvalidate.SchOutput [io]
+    schvalidate.validate(compiled(schema), doc(instance))
+
+@test
+fn test_the_validation_vocabulary_says_what_it_says() [io]
+    test.case("type, over all seven")
+    test.assert(check("{\"type\":\"string\"}", "\"x\"").valid)
+    test.assert(check("{\"type\":\"string\"}", "1").valid == false)
+    test.assert(check("{\"type\":\"integer\"}", "1.0").valid)
+    test.assert(check("{\"type\":\"integer\"}", "1.5").valid == false)
+    test.assert(check("{\"type\":\"null\"}", "null").valid)
+
+    test.case("an empty object is an object, which std.json alone cannot say")
+    test.assert(check("{\"type\":\"object\"}", "{}").valid)
+    test.assert(check("{\"type\":\"object\"}", "null").valid == false)
+    test.assert(check("{\"type\":\"null\"}", "{}").valid == false)
+
+    test.case("the numeric keywords, exclusive bounds included")
+    test.assert(check("{\"minimum\":18}", "17").valid == false)
+    test.assert(check("{\"exclusiveMaximum\":10}", "10").valid == false)
+    test.assert(check("{\"multipleOf\":3}", "9").valid)
+
+    test.case("the string keywords")
+    test.assert(check("{\"minLength\":2}", "\"a\"").valid == false)
+    test.assert(check("{\"pattern\":\"^a\"}", "\"ba\"").valid == false)
+
+    test.case("the array keywords")
+    test.assert(check("{\"minItems\":2}", "[1]").valid == false)
+    test.assert(check("{\"uniqueItems\":true}", "[1,1]").valid == false)
+    test.assert(check("{\"uniqueItems\":true}", "[1,1.0]").valid == false)
+
+    test.case("the object keywords")
+    test.assert(check("{\"required\":[\"a\"]}", "{}").valid == false)
+    test.assert(check("{\"maxProperties\":1}", "{\"a\":1,\"b\":2}").valid == false)
+
+    test.case("enum and const compare structurally")
+    test.assert(check("{\"const\":{\"a\":1}}", "{\"a\":1}").valid)
+    test.assert(check("{\"enum\":[1,\"x\"]}", "\"x\"").valid)
+    test.assert(check("{\"enum\":[1]}", "1.0").valid)
+
+@test
+fn test_the_applicators_apply() [io]
+    test.case("properties and additionalProperties")
+    let s = "{\"properties\":{\"a\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+    test.assert(check(s, "{\"a\":\"x\"}").valid)
+    test.assert(check(s, "{\"a\":1}").valid == false)
+    test.assert(check(s, "{\"b\":1}").valid == false)
+
+    test.case("prefixItems and items, which 2020-12 renamed")
+    let t = "{\"prefixItems\":[{\"type\":\"string\"}],\"items\":{\"type\":\"number\"}}"
+    test.assert(check(t, "[\"x\",1,2]").valid)
+    test.assert(check(t, "[\"x\",\"y\"]").valid == false)
+
+    test.case("allOf, anyOf, oneOf and not")
+    test.assert(check("{\"allOf\":[{\"type\":\"number\"},{\"minimum\":5}]}", "3").valid == false)
+    test.assert(check("{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"number\"}]}", "1").valid)
+    test.assert(check("{\"oneOf\":[{\"minimum\":1},{\"minimum\":2}]}", "3").valid == false)
+    test.assert(check("{\"not\":{\"type\":\"string\"}}", "\"x\"").valid == false)
+
+    test.case("if, then and else")
+    let u = "{\"if\":{\"type\":\"string\"},\"then\":{\"minLength\":3},\"else\":{\"minimum\":5}}"
+    test.assert(check(u, "\"ab\"").valid == false)
+    test.assert(check(u, "3").valid == false)
+    test.assert(check(u, "7").valid)
+
+    test.case("contains, with its own count keywords")
+    test.assert(check("{\"contains\":{\"minimum\":5}}", "[1,2,9]").valid)
+    test.assert(check("{\"contains\":{\"minimum\":5}}", "[1,2]").valid == false)
+
+    test.case("propertyNames applies a schema to the NAMES")
+    test.assert(check("{\"propertyNames\":{\"maxLength\":1}}", "{\"ab\":1}").valid == false)
+
+@test
+fn test_the_unevaluated_keywords_see_what_the_applicators_did() [io]
+    test.case("unevaluatedProperties sees a sibling properties")
+    let s = "{\"properties\":{\"a\":true},\"unevaluatedProperties\":false}"
+    test.assert(check(s, "{\"a\":1}").valid)
+    test.assert(check(s, "{\"a\":1,\"b\":2}").valid == false)
+
+    test.case("and one across an allOf, which is the whole reason it exists")
+    let across = "{\"allOf\":[{\"properties\":{\"a\":true}}],\"unevaluatedProperties\":false}"
+    test.assert(check(across, "{\"a\":1}").valid)
+    test.assert(check(across, "{\"b\":1}").valid == false)
+
+    test.case("an annotation from a branch that failed does not count")
+    let branch = "{\"anyOf\":[{\"properties\":{\"a\":{\"type\":\"string\"}}}],\"unevaluatedProperties\":false}"
+    test.assert(check(branch, "{\"a\":1}").valid == false)
+
+    test.case("unevaluatedItems, the same question about an array")
+    let items = "{\"prefixItems\":[true],\"unevaluatedItems\":false}"
+    test.assert(check(items, "[1]").valid)
+    test.assert(check(items, "[1,2]").valid == false)
+
+    test.case("a schema without them says so, and validates more cheaply")
+    test.assert(compiled("{\"type\":\"string\"}").uses_unevaluated == false)
+    test.assert(compiled(items).uses_unevaluated)
+
+@test
+fn test_every_failure_names_three_places_and_a_keyword() [io]
+    let s = "{\"properties\":{\"age\":{\"minimum\":18}}}"
+    let out = check(s, "{\"age\":17}")
+
+    test.case("the instance location is where in the DOCUMENT")
+    test.assert(list.len(out.errors) == 1)
+    test.assert(list.get(out.errors, 0).instance_location == "/age")
+
+    test.case("the keyword location is the path taken through the SCHEMA")
+    test.assert(list.get(out.errors, 0).keyword_location == "/properties/age/minimum")
+
+    test.case("and the keyword is the one that decided")
+    test.assert(list.get(out.errors, 0).keyword == "minimum")
+
+    test.case("the message carries the offending value, so a log line is enough")
+    test.assert(list.get(out.errors, 0).message != "")
+    test.assert(schvalidate.error_text(list.get(out.errors, 0)) != "")
+
+    test.case("a ref makes the absolute location differ from the relative one")
+    let reg = schcompile.with_document(schcompile.registry(), "https://x/n",
+                                       doc("{\"minimum\":18}"))
+    match schcompile.compile_with(doc("{\"properties\":{\"age\":{\"\$ref\":\"https://x/n\"}}}"), reg)
+        Err(_) =>
+            test.assert(false)
+        Ok(rs) =>
+            let refout = schvalidate.validate(rs, doc("{\"age\":17}"))
+            let u = list.get(refout.errors, 0)
+            test.assert(u.absolute_keyword_location != u.keyword_location)
+
+@test
+fn test_the_reasons_are_all_of_them_and_not_the_first() [io]
+    let s = "{\"required\":[\"a\",\"b\"],\"properties\":{\"c\":{\"type\":\"string\"}}}"
+    let out = check(s, "{\"c\":1}")
+
+    test.case("three things are wrong and three are reported")
+    test.assert(out.valid == false)
+    test.assert(list.len(out.errors) == 3)
+
+    test.case("the first is the outermost, for a caller that wants one line")
+    match schvalidate.first_error(out)
+        None    => test.assert(false)
+        Some(u) => test.assert(u.keyword == "required")
+
+    test.case("a form renderer asks by instance location")
+    test.assert(list.len(schvalidate.errors_at(out, "/c")) == 1)
+    test.assert(list.len(schvalidate.failed_locations(out)) == 2)
+
+    test.case("and the fast path collects none of it")
+    test.assert(schvalidate.is_valid(compiled(s), doc("{\"c\":1}")) == false)
+    test.assert(schvalidate.is_valid(compiled(s), doc("{\"a\":1,\"b\":2}")))
+
+    test.case("the two standard output formats, so an answer is portable")
+    test.assert(json.stringify(schvalidate.flag_output(out)) == "{\"valid\":false}")
+    let basic = schvalidate.basic_output(out)
+    test.assert(json.get_bool(basic, "valid") == Some(false))
+    test.assert(list.len(json.get_list(basic, "errors") ?? []) == 3)
+
+@test
+fn test_annotations_are_collected_and_come_from_the_validation() [io]
+    let s = "{\"title\":\"A person\",\"properties\":{\"a\":{\"default\":7}}}"
+    let out = check(s, "{\"a\":1}")
+
+    test.case("a title reaches a form generator")
+    test.assert(out.valid)
+    match schvalidate.annotation(out, "", "title")
+        None    => test.assert(false)
+        Some(v) => test.assert(json.to_str(v) == Some("A person"))
+
+    test.case("and a default, at the location it applies to")
+    test.assert(list.len(schvalidate.annotations_at(out, "/a")) > 0)
+
+    test.case("an if/then schema's annotations depend on the instance")
+    let cond = "{\"if\":{\"type\":\"string\"},\"then\":{\"title\":\"text\"},\"else\":{\"title\":\"other\"}}"
+    match schvalidate.annotation(check(cond, "\"x\""), "", "title")
+        None    => test.assert(false)
+        Some(v) => test.assert(json.to_str(v) == Some("text"))
+
+@test
+fn test_format_is_an_annotation_until_somebody_says_otherwise() [io]
+    test.case("by default a bad value under format still validates")
+    test.assert(check("{\"format\":\"uuid\"}", "\"nope\"").valid)
+
+    test.case("with the registry it does not")
+    let s = compiled("{\"format\":\"uuid\"}")
+    let strict = schvalidate.validate_with(s, doc("\"nope\""), schformat.builtin_formats())
+    test.assert(strict.valid == false)
+    test.assert(list.get(strict.errors, 0).keyword == "format")
+
+    test.case("the built-ins are the short, unambiguous, ASCII ones")
+    let b = schformat.builtin_formats()
+    test.assert(b.has_builtins)
+    test.assert(schformat.has_format(b, "uuid"))
+    test.assert(schformat.has_format(b, "date-time"))
+    test.assert(schformat.has_format(b, "ipv4"))
+    test.assert(schformat.has_format(b, "json-pointer"))
+    test.assert(list.len(schformat.format_names(b)) > 8)
+
+    test.case("and the long or disputed ones are the caller's to supply")
+    test.assert(schformat.has_format(b, "email") == false)
+    test.assert(schformat.has_format(b, "uri") == false)
+    test.assert(list.len(schformat.unsupported_formats()) > 4)
+
+    test.case("an unknown format stays an annotation even in assertion mode")
+    test.assert(schformat.check_format(b, "email", "not an address") == None)
+    let unknown = schvalidate.validate_with(compiled("{\"format\":\"email\"}"),
+                                            doc("\"nope\""), b)
+    test.assert(unknown.valid)
+
+    test.case("a caller registers one, and then it asserts")
+    let with_email = schformat.with_format(b, "email", has_an_at)
+    test.assert(schformat.check_format(with_email, "email", "nope") == Some(false))
+    test.assert(schformat.check_format(with_email, "email", "a@b") == Some(true))
+
+    test.case("and can drop one it disagrees with")
+    let fewer = schformat.without_format(b, "hostname")
+    test.assert(schformat.has_format(fewer, "hostname") == false)
+
+    test.case("an empty registry asserts nothing at all")
+    test.assert(schformat.formats().count == 0)
+    test.assert(schformat.formats().has_builtins == false)
+
+// The five-line email check nobody's is right — here because a test
+// needs a registered format and not because it is one worth shipping.
+fn has_an_at(s: Str) -> Bool
+    str.contains(s, "@")

@@ -1,0 +1,56 @@
+[package]
+name        = "schema-nv"
+version     = "0.0.1"
+description = "JSON Schema 2020-12's validation and applicator vocabularies over the standard library's JSON value, with reasons: every failure names the instance location, the schema location and the keyword, as a list rather than a first failure.  Compile once, validate many; $ref resolved inside the document and across a set the caller registered, with the core naming what it needs so the host can fetch it; format as a registry the caller extends.  Interface only — every body is a todo()."
+license     = "Apache-2.0"
+
+# An INTERFACE release: every `pub fn` body is a `todo()`, so the
+# signatures and the effect rows are published and nothing is
+# implemented.  `novo pkg publish` recognises the shape and requires
+# both the draft stability and the 0.0.x version; the first
+# implementation is the 0.1.0 published over it.
+stability   = "draft"
+
+# `core`, and the one place that could have gone the other way is a
+# refusal rather than an omission: a `$ref` names a URI, and resolving
+# one means READING a document.  So `schcompile.external_refs` answers
+# which URIs a schema needs and the HOST fetches them — the third of
+# `docs/publishing.md` § How a core package takes bytes from its host,
+# where the core asks and the host performs.  A schema from outside
+# therefore cannot make a program fetch a URL, because this package has
+# no `[net]` with which to do it.
+layer       = "core"
+
+category    = "data"
+
+tags        = ["json-schema", "2020-12", "validation", "schema", "annotations", "agent-tools", "sans-io"]
+repository  = "https://github.com/novolang/schema-nv"
+maintainers = ["novo-lang"]
+novo        = ">= 0.8.9"
+
+# A library: no `main`, so `novo pkg build` type-checks and
+# effect-checks every module under `src/` and writes no binary.
+
+[docs.pages]
+"README.md" = "Validating a JSON document, and saying why it did not match"
+
+[dependencies]
+# None, and the three absences are each argued in the README.
+#
+# NOT a JSON package.  The value this validates is the STANDARD
+# LIBRARY's (`std.json`), because a second JSON value type would mean
+# every caller converting a document before it could be checked.  What
+# that costs is written down rather than worked around: `std.json`
+# cannot tell `{}` from `null`, which is the `type` keyword's whole job.
+#
+# NOT a regex package.  `pattern` and `patternProperties` are ECMA-262
+# regular expressions, and `std.regex` is prepended to every program,
+# effect-free and available at every tier.  Where its dialect differs
+# from ECMA-262 is named in the README instead of being approximated.
+#
+# NOT url-nv, punycode-nv or ipaddr-nv.  The `format` keyword is an
+# ANNOTATION in 2020-12 unless a schema asks otherwise, and the formats
+# with long or disputed grammars — `uri`, `email`, `idn-hostname` —
+# arrive through `schformat.with_format` as a `fn(Str) -> Bool` the
+# caller supplies.  Depending on three packages so that a schema which
+# never says `format` could assert `uri` would be the wrong trade.

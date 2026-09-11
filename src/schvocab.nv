@@ -1,0 +1,228 @@
+// schvocab.nv — which of JSON Schema 2020-12's vocabularies this
+// package implements, and which keywords each one owns.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// THE SCOPE IS DATA, NOT PROSE, and that is what this module is for.
+// A validator that implements "most of" JSON Schema is a validator
+// nobody can trust a schema to, because the keywords it skips are
+// silently annotations rather than assertions and a schema that
+// depended on one passes everything.  So the scope is a list a caller
+// can READ — `implemented_keywords`, `unimplemented_keywords`,
+// `is_implemented` — and `schcompile` reports a schema that reaches
+// past it rather than ignoring the keyword.
+//
+// WHAT THIS PACKAGE IMPLEMENTS: core, applicator, validation,
+// unevaluated, and format as an ANNOTATION with an assertion mode the
+// caller turns on.  That is the whole of what makes a schema mean
+// something about an instance.
+//
+// WHAT IT DOES NOT, and each is a decision rather than an omission:
+//
+//   CONTENT (`contentEncoding`, `contentMediaType`, `contentSchema`).
+//   2020-12 § 8.5 says these are annotations by default and an
+//   implementation MAY assert them.  Asserting `contentMediaType:
+//   application/xml` means parsing XML, and a validation package that
+//   dragged in a parser per media type would be a different package.
+//   They are collected as annotations and never asserted.
+//
+//   META-DATA (`title`, `description`, `default`, `examples`,
+//   `deprecated`, `readOnly`, `writeOnly`).  Annotations by
+//   definition; collected, never asserted.  Listed here because a
+//   reader should be able to tell "annotation by design" from "not
+//   done yet", and this module is where that distinction lives.
+//
+//   META-SCHEMA VALIDATION OF THE SCHEMA ITSELF.  A schema is not
+//   checked against the 2020-12 meta-schema before it is used.  What
+//   `compile` catches is what it needs to catch to run — a `type` that
+//   is not a type, a `$ref` that does not resolve — and not every way
+//   a schema can be unusual.  A caller that wants the full check
+//   registers the meta-schema as a document and validates the schema
+//   with this package, which is what the meta-schema is FOR and costs
+//   this package nothing.
+//
+//   FORMAT AS AN ASSERTION, BY DEFAULT.  2020-12 § 7 makes `format`
+//   an annotation unless the schema declares the format-assertion
+//   vocabulary, and this package follows it.  `schformat` is where a
+//   caller turns it on and extends it.
+
+// The dialect this package implements.
+//
+// One, deliberately.  2019-09 and draft-07 are close to 2020-12 and are
+// not the same — `items` means different things in 2020-12 and in
+// 2019-09, and a schema read under the wrong dialect changes meaning
+// without changing shape.  A `$schema` naming another one is
+// `SchUnknownDialect`.
+pub const DIALECT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
+
+// One of 2020-12's vocabularies.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     println(schvocab.vocabulary_uri(SchVocabValidation))
+// ```
+pub enum SchVocabulary
+    // `$id`, `$schema`, `$ref`, `$anchor`, `$dynamicRef`,
+    // `$dynamicAnchor`, `$vocabulary`, `$comment`, `$defs`.
+    SchVocabCore
+    // `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else`,
+    // `dependentSchemas`, `prefixItems`, `items`, `contains`,
+    // `properties`, `patternProperties`, `additionalProperties`,
+    // `propertyNames`.
+    SchVocabApplicator
+    // `type`, `enum`, `const`, the six numeric keywords, the three
+    // string keywords, the array keywords, the object keywords.
+    SchVocabValidation
+    // `unevaluatedItems`, `unevaluatedProperties`.
+    SchVocabUnevaluated
+    // `format`, collected as an annotation.
+    SchVocabFormatAnnotation
+    // `format`, asserted.  Implemented only for the formats
+    // `schformat` carries or the caller registered; a format nobody
+    // knows stays an annotation, which is what 2020-12 § 7.2.1 says.
+    SchVocabFormatAssertion
+    // `contentEncoding`, `contentMediaType`, `contentSchema`.  NOT
+    // implemented: collected, never asserted.
+    SchVocabContent
+    // `title`, `description`, `default`, `deprecated`, `readOnly`,
+    // `writeOnly`, `examples`.  Annotations by definition.
+    SchVocabMetaData
+
+// The vocabulary's URI, as a `$vocabulary` object spells it.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     println(schvocab.vocabulary_uri(SchVocabCore))
+// ```
+pub fn vocabulary_uri(v: SchVocabulary) -> Str []
+    todo("schema-nv.schvocab.vocabulary_uri")
+
+// The vocabulary a URI names, or `None`.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     match schvocab.vocabulary_named("https://json-schema.org/draft/2020-12/vocab/core")
+//         Some(v) => println(schvocab.vocabulary_uri(v))
+//         None    => println("not a 2020-12 vocabulary")
+// ```
+pub fn vocabulary_named(uri: Str) -> ?SchVocabulary []
+    todo("schema-nv.schvocab.vocabulary_named")
+
+// Whether this package ASSERTS the vocabulary, rather than collecting
+// it as an annotation.
+//
+// True for core, applicator, validation, unevaluated and
+// format-assertion; false for format-annotation, content and
+// meta-data — which are annotation vocabularies by design, so `false`
+// here means "annotation", not "unfinished".  `is_annotation_only`
+// is the other half of the same question, and reading both is how a
+// caller tells the two apart.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     let asserted = schvocab.is_implemented(SchVocabApplicator)
+//     println("${asserted}")
+// ```
+pub fn is_implemented(v: SchVocabulary) -> Bool []
+    todo("schema-nv.schvocab.is_implemented")
+
+// Whether the vocabulary is an annotation vocabulary in the
+// specification itself.
+//
+// True for format-annotation, content and meta-data.  A vocabulary
+// that is neither implemented nor annotation-only does not exist in
+// this package, and that is the invariant this pair states.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     let note = schvocab.is_annotation_only(SchVocabContent)
+//     println("${note}")
+// ```
+pub fn is_annotation_only(v: SchVocabulary) -> Bool []
+    todo("schema-nv.schvocab.is_annotation_only")
+
+// Every keyword this package asserts, in specification order.
+//
+// The scope as a list, so a reader can check it against 2020-12
+// rather than against the source.
+//
+// ```novo
+// use std.list
+// use schvocab
+//
+// fn main() [io]
+//     println("${list.len(schvocab.implemented_keywords())}")
+// ```
+pub fn implemented_keywords() -> [Str] []
+    todo("schema-nv.schvocab.implemented_keywords")
+
+// Every keyword 2020-12 defines that this package collects and does
+// not assert.
+//
+// `contentEncoding`, `contentMediaType`, `contentSchema`, and the seven
+// meta-data keywords.  A short list on purpose: it is the honest answer
+// to "what does this validator not check", and it is here rather than
+// only in the README because a program can read it.
+//
+// ```novo
+// use std.list
+// use schvocab
+//
+// fn main() [io]
+//     println("${list.len(schvocab.unimplemented_keywords())}")
+// ```
+pub fn unimplemented_keywords() -> [Str] []
+    todo("schema-nv.schvocab.unimplemented_keywords")
+
+// Which vocabulary owns a keyword, or `None` for one 2020-12 does not
+// define.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     match schvocab.keyword_vocabulary("unevaluatedProperties")
+//         Some(v) => println(schvocab.vocabulary_uri(v))
+//         None    => println("not a 2020-12 keyword")
+// ```
+pub fn keyword_vocabulary(keyword: Str) -> ?SchVocabulary []
+    todo("schema-nv.schvocab.keyword_vocabulary")
+
+// Whether this package asserts a keyword by name.
+//
+// ```novo
+// use schvocab
+//
+// fn main() [io]
+//     let yes = schvocab.keyword_is_asserted("minLength")
+//     println("${yes}")
+// ```
+pub fn keyword_is_asserted(keyword: Str) -> Bool []
+    todo("schema-nv.schvocab.keyword_is_asserted")
+
+// The seven values `type` may take.
+//
+// A list rather than an enum: `type` may be one of them or an array of
+// them, the names are what appear in an error message, and an enum
+// would be seven public variant names for a set that is already
+// strings on the wire.
+//
+// ```novo
+// use std.list
+// use schvocab
+//
+// fn main() [io]
+//     println("${list.len(schvocab.type_names())}")
+// ```
+pub fn type_names() -> [Str] []
+    todo("schema-nv.schvocab.type_names")

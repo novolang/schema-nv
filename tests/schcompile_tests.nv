@@ -1,0 +1,210 @@
+// schcompile_tests.nv — the API suite for compiling a schema, the
+// registry its `$ref`s reach, and the vocabulary scope.
+//
+// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
+// assertion here reaches `not implemented: schema-nv.<module>.<fn>`.
+//
+// THE CASES ARE THE SHAPE OF THE JSON-Schema-Test-Suite.  That suite —
+// `tests/draft2020-12/*.json` — is a list of `{schema, tests: [{data,
+// valid}]}` groups, one file per keyword, and it is the oracle every
+// validator is measured against.  The schemas below are drawn from it
+// and from the specification's own examples, and the whole suite
+// becomes a generated run beside this one when the implementation
+// lands: a group's schema compiles once and each `data` is validated
+// against it.
+//
+// THE COMPILE CASES ARE THE HALF THE SUITE DOES NOT COVER.  It tests
+// what a valid schema means; it does not test what happens to a schema
+// that is not one, because every implementation answers differently.
+// This package answers with a `SchFault` naming a JSON Pointer, and
+// these are the assertions that keep that true.
+
+use std.test
+use std.list
+use std.json
+use schcompile
+use scherror
+use schvocab
+
+fn doc(text: Str) -> JsonValueH [io]
+    match json.parse(text)
+        Some(v) => v
+        None    =>
+            test.assert(false)
+            json.null()
+
+// The fault a schema is refused with, or `None` when it compiles.
+fn refused(text: Str) -> ?scherror.SchFaultKind [io]
+    match schcompile.compile(doc(text))
+        Ok(_)  => None
+        Err(f) => Some(f.kind)
+
+@test
+fn test_a_schema_compiles_once_and_answers_what_it_is() [io]
+    test.case("the smallest schemas there are — true and false")
+    test.assert(refused("true") == None)
+    test.assert(refused("false") == None)
+
+    test.case("and anything that is neither an object nor a boolean is not one")
+    test.assert(refused("3") == Some(SchNotASchema))
+    test.assert(refused("[]") == Some(SchNotASchema))
+
+    test.case("a compiled schema knows its own id")
+    match schcompile.compile(doc("{\"\$id\":\"https://x/s\",\"type\":\"string\"}"))
+        Err(_) => test.assert(false)
+        Ok(s)  => test.assert(s.id == "https://x/s")
+
+    test.case("and how much of it there is, for a caller bounding one")
+    match schcompile.compile(doc("{\"type\":\"object\",\"required\":[\"a\"]}"))
+        Err(_) => test.assert(false)
+        Ok(s)  => test.assert(s.keyword_count == 2)
+
+    test.case("and whether the expensive features are in it")
+    match schcompile.compile(doc("{\"unevaluatedProperties\":false}"))
+        Err(_) => test.assert(false)
+        Ok(s)  => test.assert(s.uses_unevaluated)
+    match schcompile.compile(doc("{\"type\":\"string\"}"))
+        Err(_) => test.assert(false)
+        Ok(s)  => test.assert(s.uses_unevaluated == false)
+
+@test
+fn test_a_schema_that_is_not_one_is_refused_by_pointer() [io]
+    test.case("a keyword whose value is the wrong shape")
+    test.assert(refused("{\"type\":3}") == Some(SchBadKeywordValue))
+    test.assert(refused("{\"required\":\"a\"}") == Some(SchBadKeywordValue))
+
+    test.case("a type nobody has")
+    test.assert(refused("{\"type\":\"integerish\"}") == Some(SchUnknownType))
+
+    test.case("a pattern that does not compile")
+    test.assert(refused("{\"pattern\":\"[\"}") == Some(SchBadPattern))
+
+    test.case("a dialect this package does not implement")
+    let old = "{\"\$schema\":\"http://json-schema.org/draft-07/schema#\"}"
+    test.assert(refused(old) == Some(SchUnknownDialect))
+
+    test.case("the fault names a JSON Pointer, not a byte offset")
+    match schcompile.compile(doc("{\"properties\":{\"age\":{\"type\":3}}}"))
+        Ok(_)  => test.assert(false)
+        Err(f) =>
+            test.assert(f.schema_location == "/properties/age/type")
+            test.assert(f.found == "3")
+
+    test.case("a kind has a name and a message a program can quote")
+    test.assert(scherror.kind_name(SchUnresolvedRef) == "unresolved-ref")
+    let g = scherror.fault(SchUnknownType, "/type", "", "integerish")
+    test.assert(g.schema_location == "/type")
+    test.assert(scherror.message(g) != "")
+
+    test.case("a tool wanting every fault at once asks for all of them")
+    let bad = doc("{\"type\":3,\"minLength\":\"x\"}")
+    test.assert(list.len(schcompile.faults(bad, schcompile.registry())) == 2)
+
+@test
+fn test_a_typo_can_be_caught_or_ignored_and_the_caller_chooses() [io]
+    test.case("JSON Schema's own rule: an unknown keyword is an annotation")
+    test.assert(refused("{\"requred\":[\"id\"]}") == None)
+
+    test.case("which is why a caller validating its own schemas turns it off")
+    var strict = schcompile.default_options()
+    strict.refuse_unknown_keywords = true
+    match schcompile.compile_with_options(doc("{\"requred\":[\"id\"]}"),
+                                          schcompile.registry(), strict)
+        Ok(_)  => test.assert(false)
+        Err(f) => test.assert(f.kind == SchUnknownKeyword)
+
+    test.case("the defaults are the specification's")
+    let o = schcompile.default_options()
+    test.assert(o.refuse_unknown_keywords == false)
+    test.assert(o.assert_formats == false)
+    test.assert(o.default_dialect == schvocab.DIALECT_2020_12)
+    test.assert(o.max_depth > 0)
+
+@test
+fn test_the_core_says_what_it_needs_and_the_host_fetches_it() [io]
+    test.case("an internal ref needs nothing fetched")
+    let internal = doc("{\"\$defs\":{\"t\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/t\"}")
+    test.assert(list.len(schcompile.external_refs(internal)) == 0)
+    match schcompile.compile(internal)
+        Err(_) => test.assert(false)
+        Ok(_)  => test.assert(true)
+
+    test.case("an external one is named, before anything is compiled")
+    let external = doc("{\"\$ref\":\"https://x/other\"}")
+    let wanted = schcompile.external_refs(external)
+    test.assert(list.len(wanted) == 1)
+    test.assert(list.get(wanted, 0) == "https://x/other")
+
+    test.case("and compiling without it is a named refusal, not a fetch")
+    test.assert(refused("{\"\$ref\":\"https://x/other\"}") == Some(SchUnresolvedRef))
+
+    test.case("the host registers it and the compile goes through")
+    let reg = schcompile.with_document(schcompile.registry(), "https://x/other",
+                                       doc("{\"type\":\"string\"}"))
+    test.assert(reg.count == 1)
+    test.assert(list.get(schcompile.document_uris(reg), 0) == "https://x/other")
+    match schcompile.compile_with(external, reg)
+        Err(_) => test.assert(false)
+        Ok(_)  => test.assert(true)
+
+    test.case("missing_refs is what the fetch loop stops on")
+    test.assert(list.len(schcompile.missing_refs(external, schcompile.registry())) == 1)
+    test.assert(list.len(schcompile.missing_refs(external, reg)) == 0)
+
+    test.case("a bundle's own resource ids are reachable once registered")
+    let bundle = doc("{\"\$id\":\"https://x/a\",\"\$defs\":{\"b\":{\"\$id\":\"https://x/b\"}}}")
+    test.assert(list.len(schcompile.resource_ids(bundle)) == 2)
+
+    test.case("a ref that resolves to itself with no instance consumed")
+    test.assert(refused("{\"\$ref\":\"#\"}") == Some(SchRefCycle))
+
+    test.case("but a recursive schema that goes through a keyword is fine")
+    let tree = "{\"\$id\":\"https://x/t\",\"properties\":{\"kid\":{\"\$ref\":\"https://x/t\"}}}"
+    match schcompile.compile_with(doc(tree), schcompile.registry())
+        Err(_) => test.assert(false)
+        Ok(_)  => test.assert(true)
+
+@test
+fn test_the_vocabulary_scope_is_a_list_a_program_can_read() [io]
+    test.case("the dialect, and only the one")
+    test.assert(schvocab.DIALECT_2020_12 == "https://json-schema.org/draft/2020-12/schema")
+
+    test.case("what this package asserts")
+    test.assert(schvocab.is_implemented(SchVocabCore))
+    test.assert(schvocab.is_implemented(SchVocabApplicator))
+    test.assert(schvocab.is_implemented(SchVocabValidation))
+    test.assert(schvocab.is_implemented(SchVocabUnevaluated))
+
+    test.case("and what is an annotation vocabulary by design, not unfinished")
+    test.assert(schvocab.is_implemented(SchVocabContent) == false)
+    test.assert(schvocab.is_annotation_only(SchVocabContent))
+    test.assert(schvocab.is_annotation_only(SchVocabMetaData))
+    test.assert(schvocab.is_annotation_only(SchVocabValidation) == false)
+
+    test.case("a uri round-trips to its vocabulary")
+    let core = schvocab.vocabulary_uri(SchVocabCore)
+    test.assert(schvocab.vocabulary_named(core) == Some(SchVocabCore))
+    test.assert(schvocab.vocabulary_named("https://example.com/vocab") == None)
+
+    test.case("every keyword belongs to one of them")
+    test.assert(schvocab.keyword_vocabulary("minimum") == Some(SchVocabValidation))
+    test.assert(schvocab.keyword_vocabulary("properties") == Some(SchVocabApplicator))
+    test.assert(schvocab.keyword_vocabulary("unevaluatedItems") == Some(SchVocabUnevaluated))
+    test.assert(schvocab.keyword_vocabulary("\$ref") == Some(SchVocabCore))
+    test.assert(schvocab.keyword_vocabulary("requred") == None)
+
+    test.case("the scope, as two lists")
+    test.assert(list.len(schvocab.implemented_keywords()) > 30)
+    test.assert(list.len(schvocab.unimplemented_keywords()) == 10)
+    test.assert(schvocab.keyword_is_asserted("minLength"))
+    test.assert(schvocab.keyword_is_asserted("contentMediaType") == false)
+    test.assert(schvocab.keyword_is_asserted("title") == false)
+
+    test.case("the seven types")
+    test.assert(list.len(schvocab.type_names()) == 7)
+
+    test.case("a required vocabulary this package cannot honour is refused")
+    let vocab = "https://json-schema.org/draft/2020-12/vocab/content"
+    let s = "{\"\$schema\":\"${schvocab.DIALECT_2020_12}\",\"\$vocabulary\":{\"${vocab}\":true}}"
+    test.assert(list.len(schcompile.unsupported_vocabularies(doc(s))) == 1)
+    test.assert(refused(s) == Some(SchUnsupportedVocabulary))

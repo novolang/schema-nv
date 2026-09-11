@@ -1,0 +1,320 @@
+// schvalidate.nv — an instance against a compiled schema, and the
+// reasons it did not match.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// VALIDATION CANNOT FAIL, so nothing here answers a `Result`.  An
+// instance that does not match is not an error; it IS the answer, and
+// `SchOutput.valid` is that answer with `SchOutput.errors` beside it.
+// Everything fallible happened in `schcompile`, once.
+//
+// EVERY FAILURE IS A LIST, NOT A FIRST ONE, which is the package's row
+// on the grid — "validation with reasons" — and the decision the whole
+// output shape follows from.  A form with six bad fields should tell a
+// person about six, not about the first; an agent handed a tool call
+// that does not match its schema should be told everything that is
+// wrong with it so its next attempt is right rather than one step
+// closer.  `is_valid` is the fast path for a caller that only wants the
+// boolean, and it stops early because it can.
+//
+// EVERY FAILURE NAMES THREE PLACES, which is 2020-12 § 12.3's output
+// unit and what makes a reason actionable:
+//
+//   instance_location          where in the DOCUMENT — `/users/2/age`
+//   keyword_location           where in the SCHEMA, by the path taken,
+//                              `$ref`s followed — `/properties/users/
+//                              items/$ref/properties/age/minimum`
+//   absolute_keyword_location  the same, as a URI, so it names the
+//                              resource a `$ref` went into
+//
+// The second and the third differ exactly when a `$ref` was followed,
+// and that is the case where a reader needs both: one says how the
+// validator got there, the other says where "there" is.
+//
+// ANNOTATIONS ARE COLLECTED, because `unevaluatedItems` and
+// `unevaluatedProperties` are defined in terms of them — a property is
+// "evaluated" when some applicator produced an annotation for it — and
+// because `title`, `default` and `format` are what a form generator
+// wants out of a schema.  A schema with no `unevaluated*` keyword
+// validates without carrying them, which `SchSchema.uses_unevaluated`
+// is how the validator knows.
+
+use std.json
+use schcompile
+use schformat
+
+// One thing that was wrong, or one annotation that was produced.
+pub struct SchUnit
+    // An RFC 6901 pointer into the INSTANCE: `/users/2/age`, `""` for
+    // the document as a whole.
+    instance_location: Str
+    // An RFC 6901 pointer into the SCHEMA, along the path the
+    // validator took, with `$ref` appearing as a step.
+    keyword_location: Str
+    // The same location as an absolute URI, which names the resource a
+    // `$ref` led into.  Equal to `keyword_location` prefixed by the
+    // root `$id` when no `$ref` was followed; empty when the schema
+    // declared no `$id` and none was followed.
+    absolute_keyword_location: Str
+    // The keyword that decided: `"minimum"`, `"required"`, `"type"`.
+    keyword: Str
+    // A sentence about this failure, with the offending value in it.
+    // Rendered here rather than left to the caller because the useful
+    // message needs the keyword's own vocabulary — "expected at least
+    // 3 items, found 1" — and every caller writing that switch again
+    // would write it differently.
+    message: Str
+
+// One annotation an applicator produced.
+pub struct SchAnnotation
+    instance_location: Str
+    keyword_location: Str
+    keyword: Str
+    // The annotation's value, as the schema wrote it: the `title`
+    // string, the `default` value, the list of property names
+    // `properties` matched.
+    value: JsonValueH
+
+// What a validation produced.
+pub struct SchOutput
+    valid: Bool
+    // Every failure, in the order the validator reached them — which
+    // is document order within a keyword and schema order between
+    // them.  Empty when `valid`.
+    errors: [SchUnit]
+    // Every annotation from a subschema that succeeded.  2020-12
+    // § 7.7.1 drops the annotations of a subschema that failed, and so
+    // does this: an annotation from a branch that did not apply would
+    // describe an instance nobody accepted.
+    annotations: [SchAnnotation]
+
+// Validate an instance.
+//
+// **The load-bearing call of this module**, and it answers an output
+// rather than a `Result` because an invalid instance is an answer.
+//
+// ```novo
+// use std.json
+// use std.list
+// use schcompile
+// use schvalidate
+//
+// fn main() [io]
+//     match json.parse("{\"type\":\"object\",\"required\":[\"id\"]}")
+//         None       =>
+//             println("not json")
+//         Some(sdoc) =>
+//             match schcompile.compile(sdoc)
+//                 Err(_) =>
+//                     println("schema did not compile")
+//                 Ok(s)  =>
+//                     match json.parse("{}")
+//                         None    => println("not json")
+//                         Some(i) =>
+//                             let out = schvalidate.validate(s, i)
+//                             println("${list.len(out.errors)}")
+// ```
+pub fn validate(s: schcompile.SchSchema, instance: JsonValueH) -> SchOutput []
+    todo("schema-nv.schvalidate.validate")
+
+// Validate with a format registry, so `format` can assert.
+//
+// ```novo
+// use std.json
+// use schcompile
+// use schformat
+// use schvalidate
+//
+// fn main() [io]
+//     match json.parse("{\"format\":\"uuid\"}")
+//         None       =>
+//             println("not json")
+//         Some(sdoc) =>
+//             match schcompile.compile(sdoc)
+//                 Err(_) =>
+//                     println("schema did not compile")
+//                 Ok(s)  =>
+//                     match json.parse("\"nope\"")
+//                         None    => println("not json")
+//                         Some(i) =>
+//                             let out = schvalidate.validate_with(s, i, schformat.builtin_formats())
+//                             println("${out.valid}")
+// ```
+pub fn validate_with(s: schcompile.SchSchema, instance: JsonValueH,
+                     formats: schformat.SchFormats) -> SchOutput []
+    todo("schema-nv.schvalidate.validate_with")
+
+// Whether an instance matches, with no reasons collected.
+//
+// The fast path, and it is genuinely faster rather than a wrapper: it
+// stops at the first failure, it builds no locations, and it collects
+// no annotations for a schema that has no `unevaluated*` keyword.  What
+// a hot path calls — a queue consumer checking a million messages, a
+// router deciding whether a body is worth parsing further.
+//
+// ```novo
+// use std.json
+// use schcompile
+// use schvalidate
+//
+// fn main() [io]
+//     match json.parse("{\"type\":\"string\"}")
+//         None       =>
+//             println("not json")
+//         Some(sdoc) =>
+//             match schcompile.compile(sdoc)
+//                 Err(_) =>
+//                     println("schema did not compile")
+//                 Ok(s)  =>
+//                     match json.parse("\"hello\"")
+//                         None    => println("not json")
+//                         Some(i) => println("${schvalidate.is_valid(s, i)}")
+// ```
+pub fn is_valid(s: schcompile.SchSchema, instance: JsonValueH) -> Bool []
+    todo("schema-nv.schvalidate.is_valid")
+
+// The first failure, or `None`.
+//
+// For a caller that has an output and wants one line out of it — a log
+// message, a test assertion.  The first is the outermost, because the
+// validator reaches a container before its members.
+//
+// ```novo
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: true, errors: [], annotations: [] }
+//     match schvalidate.first_error(out)
+//         Some(u) => println(u.keyword)
+//         None    => println("it matched")
+// ```
+pub fn first_error(out: SchOutput) -> ?SchUnit []
+    todo("schema-nv.schvalidate.first_error")
+
+// Every failure at one place in the instance.
+//
+// What a form renderer asks: "what is wrong with the `email` field?"
+// is a question about an instance location, and an output is a flat
+// list because a schema can fail one location under several keywords.
+//
+// ```novo
+// use std.list
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: true, errors: [], annotations: [] }
+//     let shown = list.len(schvalidate.errors_at(out, "/email"))
+//     println("${shown}")
+// ```
+pub fn errors_at(out: SchOutput, instance_location: Str) -> [SchUnit] []
+    todo("schema-nv.schvalidate.errors_at")
+
+// Every instance location that failed, deduplicated, in document order.
+//
+// The other half of the form renderer's question: which fields to mark
+// at all.
+//
+// ```novo
+// use std.list
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: true, errors: [], annotations: [] }
+//     println("${list.len(schvalidate.failed_locations(out))}")
+// ```
+pub fn failed_locations(out: SchOutput) -> [Str] []
+    todo("schema-nv.schvalidate.failed_locations")
+
+// One failure as a line of text.
+//
+// `"/users/2/age: 17 is less than the minimum of 18"` — the instance
+// location, then the message.  Here so that a caller printing an output
+// does not write the same join in every program.
+//
+// ```novo
+// use schvalidate
+//
+// fn main() [io]
+//     let u = SchUnit { instance_location: "/age", keyword_location: "/minimum",
+//                       absolute_keyword_location: "", keyword: "minimum",
+//                       message: "17 is less than the minimum of 18" }
+//     println(schvalidate.error_text(u))
+// ```
+pub fn error_text(u: SchUnit) -> Str []
+    todo("schema-nv.schvalidate.error_text")
+
+// The output as 2020-12 § 12.4's "Flag" format: `{"valid": false}`.
+//
+// The two standard output formats are here because they are what makes
+// a validator's answer portable — a service that returns one can be
+// read by a client using a different implementation.
+//
+// ```novo
+// use std.json
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: true, errors: [], annotations: [] }
+//     println(json.stringify(schvalidate.flag_output(out)))
+// ```
+pub fn flag_output(out: SchOutput) -> JsonValueH []
+    todo("schema-nv.schvalidate.flag_output")
+
+// The output as 2020-12 § 12.4's "Basic" format: a flat list of output
+// units under `"errors"`.
+//
+// Basic rather than "Detailed" or "Verbose": the flat list is the one
+// a program consumes, the hierarchical ones are for a person reading
+// JSON by eye, and this package's `SchOutput` is already the flat list
+// with the units typed.  A caller that wants the hierarchy has
+// `keyword_location` on every unit and can build it.
+//
+// ```novo
+// use std.json
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: false, errors: [], annotations: [] }
+//     println(json.stringify(schvalidate.basic_output(out)))
+// ```
+pub fn basic_output(out: SchOutput) -> JsonValueH []
+    todo("schema-nv.schvalidate.basic_output")
+
+// The annotations produced at one instance location, by keyword.
+//
+// What a form generator reads out of a schema: the `title` for a label,
+// the `description` for help text, the `default` for an initial value.
+// They come from a VALIDATION rather than from the schema directly
+// because an `if`/`then` schema's annotations depend on the instance,
+// and reading them off the schema would answer the ones from branches
+// that did not apply.
+//
+// ```novo
+// use std.list
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: true, errors: [], annotations: [] }
+//     let shown = list.len(schvalidate.annotations_at(out, ""))
+//     println("${shown}")
+// ```
+pub fn annotations_at(out: SchOutput, instance_location: Str) -> [SchAnnotation] []
+    todo("schema-nv.schvalidate.annotations_at")
+
+// The value of one annotation keyword at one location, or `None`.
+//
+// The common case of `annotations_at` — "what is the title of this
+// field" — without the list walk.
+//
+// ```novo
+// use std.json
+// use schvalidate
+//
+// fn main() [io]
+//     let out = SchOutput { valid: true, errors: [], annotations: [] }
+//     match schvalidate.annotation(out, "", "title")
+//         Some(v) => println(json.stringify(v))
+//         None    => println("no title there")
+// ```
+pub fn annotation(out: SchOutput, instance_location: Str, keyword: Str) -> ?JsonValueH []
+    todo("schema-nv.schvalidate.annotation")

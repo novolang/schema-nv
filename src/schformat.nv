@@ -1,0 +1,185 @@
+// schformat.nv — `format`, as a registry the caller extends.
+//
+// Every body here is a `todo()`; the signatures are the design.
+//
+// `format` IS AN ANNOTATION UNLESS SOMEBODY SAYS OTHERWISE, which is
+// 2020-12 § 7 and not this package being cautious.  A schema that says
+// `"format": "email"` is describing the value, and an implementation
+// that refused a string on those grounds would refuse documents every
+// other implementation accepts.  `SchOptions.assert_formats` and the
+// format-assertion vocabulary are the two ways a caller turns it on.
+//
+// WHICH FORMATS ARE BUILT IN, AND WHY THOSE.  The ones whose grammar is
+// short, unambiguous and ASCII — a check a reader can verify against
+// the RFC in a minute:
+//
+//   date, time, date-time, duration   RFC 3339 §§ 5.6 and appendix A
+//   uuid                              RFC 4122's textual form
+//   ipv4, ipv6                        RFC 2673 and RFC 4291
+//   json-pointer, relative-json-pointer   RFC 6901 and its draft
+//   hostname                          RFC 1123's preferred name syntax
+//   regex                             `regex.error` answering None
+//
+// AND WHICH ARE NOT, each with the package that answers it.  These have
+// grammars that are long, disputed, or need tables, and a validator
+// that approximated one would reject addresses that work:
+//
+//   email, idn-email      RFC 5322's addr-spec is famously not a
+//                         regular language; nobody's five-line check is
+//                         right.  A caller registers one.
+//   uri, uri-reference    url-nv's parser is the answer, and depending
+//   iri, iri-reference    on it here would put a URL parser in the
+//                         closure of every schema that never mentions
+//                         one.
+//   idn-hostname          needs punycode-nv and IDNA's tables.
+//   uri-template          RFC 6570 is a language of its own.
+//
+// A FORMAT NOBODY KNOWS STAYS AN ANNOTATION, even in assertion mode.
+// 2020-12 § 7.2.1 says an implementation must not fail a value for a
+// format it does not implement, so `check_format` answers `None` for an
+// unknown name and the validator records an annotation rather than a
+// failure.  That is why the answer is `?Bool` and not `Bool`.
+
+// The formats a validation knows.
+//
+// A value, so two schemas in one program can see different sets: a
+// service validating its own configuration may assert `email` with a
+// strict check while the payloads it receives from outside use the
+// lenient one.
+pub struct SchFormats
+    // How many names it holds.  Public so a caller can assert on it;
+    // the names themselves are reached by `format_names`.
+    count: Int
+    // Whether the built-in set is included.  Public because "did I
+    // start from empty or from the defaults" is the question a caller
+    // debugging a surprising pass most often has.
+    has_builtins: Bool
+
+// An empty registry: every `format` is an annotation.
+//
+// The starting point for a caller that wants to assert exactly the
+// formats it names and nothing else.
+//
+// ```novo
+// use schformat
+//
+// fn main() [io]
+//     println("${schformat.formats().count}")
+// ```
+pub fn formats() -> SchFormats []
+    todo("schema-nv.schformat.formats")
+
+// The formats this package carries, listed in the module header.
+//
+// ```novo
+// use schformat
+//
+// fn main() [io]
+//     println("${schformat.builtin_formats().has_builtins}")
+// ```
+pub fn builtin_formats() -> SchFormats []
+    todo("schema-nv.schformat.builtin_formats")
+
+// A registry with one more format in it.
+//
+// `check` answers whether a string is in the format.  It takes only the
+// string — a format check has no access to the schema, the instance
+// around it or anything else, which is 2020-12's own model and also
+// what keeps a caller's check testable on its own.
+//
+// A name already in the registry is replaced, so a caller can start
+// from `builtin_formats()` and override one.
+//
+// ```novo
+// use schformat
+//
+// fn is_even_length(s: Str) -> Bool
+//     str.len(s) % 2 == 0
+//
+// fn main() [io]
+//     let reg = schformat.with_format(schformat.formats(), "even", is_even_length)
+//     println("${reg.count}")
+// ```
+pub fn with_format(r: SchFormats, name: Str, check: fn(Str) -> Bool) -> SchFormats []
+    todo("schema-nv.schformat.with_format")
+
+// A registry with one format removed.
+//
+// For a caller that wants the built-ins minus one it disagrees with —
+// `hostname`, most often, because RFC 1123 and what a container
+// orchestrator calls a hostname are not the same thing.
+//
+// ```novo
+// use schformat
+//
+// fn main() [io]
+//     let reg = schformat.without_format(schformat.builtin_formats(), "hostname")
+//     let shown = schformat.has_format(reg, "hostname")
+//     println("${shown}")
+// ```
+pub fn without_format(r: SchFormats, name: Str) -> SchFormats []
+    todo("schema-nv.schformat.without_format")
+
+// Whether the registry knows a format.
+//
+// ```novo
+// use schformat
+//
+// fn main() [io]
+//     let known = schformat.has_format(schformat.builtin_formats(), "uuid")
+//     println("${known}")
+// ```
+pub fn has_format(r: SchFormats, name: Str) -> Bool []
+    todo("schema-nv.schformat.has_format")
+
+// Every name the registry knows, sorted.
+//
+// ```novo
+// use std.list
+// use schformat
+//
+// fn main() [io]
+//     println("${list.len(schformat.format_names(schformat.builtin_formats()))}")
+// ```
+pub fn format_names(r: SchFormats) -> [Str] []
+    todo("schema-nv.schformat.format_names")
+
+// Whether a string is in a format: `Some(true)`, `Some(false)`, or
+// `None` for a format the registry does not know.
+//
+// The three-valued answer is 2020-12 § 7.2.1's rule made into a type.
+// An implementation must not fail a value for a format it does not
+// implement, so `None` is what the validator turns into an annotation
+// and never into a failure.  A `Bool` here would have forced a
+// choice between failing unknown formats and passing them, and both
+// are wrong.
+//
+// ```novo
+// use schformat
+//
+// fn main() [io]
+//     let reg = schformat.builtin_formats()
+//     match schformat.check_format(reg, "uuid", "not-a-uuid")
+//         Some(ok) => println("${ok}")
+//         None     => println("nobody registered that format")
+// ```
+pub fn check_format(r: SchFormats, name: Str, text: Str) -> ?Bool []
+    todo("schema-nv.schformat.check_format")
+
+// The formats 2020-12 names that this package does NOT carry, with the
+// package that answers each one.
+//
+// `"email"`, `"uri (url-nv)"`, `"idn-hostname (punycode-nv)"` and the
+// rest — a list rather than prose, so a program can print it and a
+// caller can see what it is expected to register.  The module header
+// argues why each one is outside.
+//
+// ```novo
+// use std.list
+// use schformat
+//
+// fn main() [io]
+//     println("${list.len(schformat.unsupported_formats())}")
+// ```
+pub fn unsupported_formats() -> [Str] []
+    todo("schema-nv.schformat.unsupported_formats")
