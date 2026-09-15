@@ -1,6 +1,6 @@
 [package]
 name        = "schema-nv"
-version     = "0.0.1"
+version     = "0.0.2"
 description = "JSON Schema 2020-12's validation and applicator vocabularies over the standard library's JSON value, with reasons: every failure names the instance location, the schema location and the keyword, as a list rather than a first failure.  Compile once, validate many; $ref resolved inside the document and across a set the caller registered, with the core naming what it needs so the host can fetch it; format as a registry the caller extends.  Interface only — every body is a todo()."
 license     = "Apache-2.0"
 
