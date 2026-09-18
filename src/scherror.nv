@@ -105,6 +105,20 @@ pub struct SchFault
     // that a fault can be logged without keeping the document alive.
     found: Str
 
+// `SchFault` is an `Error`, which is what lets `Result<T, SchFault>`
+// exist at all — the three `schcompile.compile*` signatures are the
+// ones that answer with a `Result`, and this fault is the `E` in all
+// of them.
+impl Error for SchFault
+    // The one-line message: what was wrong and where in the schema it
+    // was, which is what `scherror.message` renders — the free
+    // function is this method's own wording, reachable without the
+    // trait.
+    //
+    // Panics with `not implemented` until the bodies land.
+    fn message(self) -> Str
+        todo("schema-nv.SchFault.message")
+
 // A fault from its parts.
 //
 // ```novo
