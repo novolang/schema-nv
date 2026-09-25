@@ -74,22 +74,22 @@ pub struct SchRegistry
 // What a compile will not do.
 pub struct SchOptions
     // How deeply subschemas may nest.
-    max_depth: Int
+    var max_depth: Int
     // Refuse a keyword 2020-12 does not define, instead of collecting
     // it as an annotation.  FALSE by default, because the
     // specification's rule is that an unknown keyword is an annotation
     // — but a caller validating its OWN schemas usually wants the typo
     // caught, and `"requred": ["a"]` silently passing everything is the
     // most common JSON Schema bug there is.
-    refuse_unknown_keywords: Bool
+    var refuse_unknown_keywords: Bool
     // Treat `format` as an assertion even where the schema does not
     // declare the format-assertion vocabulary.  FALSE by default,
     // which is 2020-12 § 7.  A format nobody registered stays an
     // annotation either way.
-    assert_formats: Bool
+    var assert_formats: Bool
     // The dialect to assume for a schema with no `$schema`.
     // `schvocab.DIALECT_2020_12` by default.
-    default_dialect: Str
+    var default_dialect: Str
 
 // The defaults: 128 deep, unknown keywords collected, `format` an
 // annotation, 2020-12 assumed.

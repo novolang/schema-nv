@@ -4,6 +4,15 @@ Every published version, newest first. This file is on the publish
 allow-list, so it travels with the package: it is the only thing a
 consumer deciding whether to upgrade can read.
 
+## 0.0.3 — 2026-09-25
+
+Every field of `SchOptions` is now declared `var`.  Under novo 0.10.0 a
+field is assigned only when it is declared that way.  The example on
+`compile_with_options` takes `default_options()` and sets
+`refuse_unknown_keywords`, and it compiles again.  This is a change to a
+public declaration, but no program that built against 0.0.2 stops
+building.  Every body is still `todo()`.
+
 ## 0.0.2 — 2026-09-15
 
 README rewritten to the package README style guide (docs/writing-a-readme.md).
