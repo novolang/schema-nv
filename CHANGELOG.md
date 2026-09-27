@@ -4,6 +4,51 @@ Every published version, newest first. This file is on the publish
 allow-list, so it travels with the package: it is the only thing a
 consumer deciding whether to upgrade can read.
 
+## 0.1.0 — 2026-09-27
+
+The first implementation of the interface published as 0.0.1: the
+compile, the registry, validation with every failure's three locations,
+annotations, the two standard output formats, and the built-in formats.
+
+### Added
+
+- `schcompile` resolves `$id`, `$ref`, `$anchor`, `$dynamicAnchor` and
+  `$dynamicRef` by RFC 3986 section 5.2 across the schema and the
+  registry, checks every keyword's shape, compiles every `pattern`, and
+  refuses a cycle of references and in-place applicators that would
+  never finish validating.
+- `schvalidate` implements the core, applicator, validation and
+  unevaluated vocabularies of 2020-12, and `format` as an annotation or
+  an assertion.  It passes all 1291 cases of the JSON-Schema-Test-Suite
+  files it runs, which `tools/suite.py` writes into the
+  `suite_*_tests.nv` files.
+- `schformat` carries `date`, `time`, `date-time`, `duration`, `uuid`,
+  `ipv4`, `ipv6`, `json-pointer`, `relative-json-pointer`, `hostname`
+  and `regex`, checked against the suite's optional format files.
+- `SchIndex` and `SchTarget`, the documents a compiled schema reaches
+  and a place a reference leads, which `schvalidate` reads.
+
+### Changed
+
+These break code written against 0.0.x.
+
+- `SchSchema` has two more fields, `index` and `options`;
+  `SchRegistry` has `uris` and `documents`; `SchFormats` has `names`
+  and `checks`.  A struct literal of any of them needs the new fields.
+  They hold what the compile and the registries need, and a caller
+  builds these values with the package's functions.
+- A `$vocabulary` entry is refused only when this package does not
+  recognise the vocabulary.  The content and meta-data vocabularies are
+  recognised, as annotations, so the 2020-12 meta-schema compiles;
+  0.0.x's tests refused a required content vocabulary.
+- `schvalidate.validate_with` asserts every format its registry knows,
+  and `validate` asserts the built-in ones when the schema was compiled
+  with `SchOptions.assert_formats`.
+- `external_refs` answers URIs without fragments, and leaves out
+  resources the document itself declares with `$id`.
+  `with_document` ignores a fragment on the URI it is given.
+- `SchFault.found` is the JSON text of what was there.
+
 ## 0.0.3 — 2026-09-25
 
 Every field of `SchOptions` is now declared `var`.  Under novo 0.10.0 a

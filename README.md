@@ -14,12 +14,6 @@ decided.
 /users/2:     required property "email" is missing
 ```
 
-**Status: NOT IMPLEMENTED — interface only.** Every function is
-declared with its full signature, but every body is a `todo()` that
-panics when called. The package is published so its design can be
-reviewed and depended on before it is implemented. Version 0.1.0 will
-be the first working release.
-
 ## What it is
 
 A **schema** is a JSON object whose members are **keywords**, or the
@@ -101,11 +95,6 @@ fn main() [io]
                                 println("${e.instance_location}: ${schvalidate.error_text(e)}")
 ```
 
-Build and test with `novo pkg build` and `novo test`. Today `novo test`
-fails on purpose: every test reaches a `not implemented:
-schema-nv.<module>.<fn>` panic. The tests are the specification the
-implementation will have to satisfy.
-
 ## What the package contains
 
 | Module | Contents |
@@ -150,11 +139,13 @@ implementation can read it.
 3. **Every failure is reported, not just the first.** A form with six
    bad fields should tell a person about six. `errors_at` and
    `failed_locations` are the two questions a form renderer asks.
-4. **`format` is an annotation unless the schema asks otherwise.**
+4. **`format` is an annotation unless a caller asks otherwise.**
    2020-12 section 7 says so, and a validator that refused a string
    because its `format` said `email` would refuse documents every other
-   implementation accepts. `SchOptions.assert_formats` turns assertion
-   on for a caller who wants it.
+   implementation accepts. `schvalidate.validate_with` asserts every
+   format the registry it is given knows, and
+   `SchOptions.assert_formats` makes `validate` and `is_valid` assert
+   the built-in ones.
 5. **A format nobody knows stays an annotation even in assertion
    mode.** Section 7.2.1 forbids failing a value for a format the
    implementation does not have, which is why
@@ -165,6 +156,9 @@ implementation can read it.
    `date`, `time`, `date-time`, `duration`, `uuid`, `ipv4`, `ipv6`,
    `json-pointer`, `relative-json-pointer`, `hostname`, `regex`.
    `schformat.with_format` takes a `fn(Str) -> Bool` for any other.
+   `hostname` checks RFC 1123's syntax; a label starting `xn--` is
+   accepted without checking that its Punycode decodes to a label IDNA
+   permits.
 7. **`pattern` is an ECMA-262 regular expression, and `std.regex` is
    not quite one.** The differences are named rather than approximated:
    matching is byte-wise, so `.` is any byte but a newline and `\d` and
@@ -181,9 +175,11 @@ implementation can read it.
    specification's rule. `SchOptions.refuse_unknown_keywords` turns it
    into `SchUnknownKeyword`, which a caller validating its own schemas
    usually wants: `"requred": ["a"]` silently passes everything.
-10. **A `$vocabulary` entry this package does not implement, with the
-    value `true`, is refused.** 2020-12 section 8.1.2 requires it. An
-    entry with the value `false` is a note.
+10. **A `$vocabulary` entry this package does not recognise, with the
+    value `true`, is refused.** 2020-12 section 8.1.2 requires it. The
+    eight vocabularies of 2020-12 are all recognised, the content and
+    meta-data ones as annotations, so the 2020-12 meta-schema compiles.
+    An entry with the value `false` is not refused.
 11. **Only 2020-12 is implemented.** A `$schema` naming another dialect
     is `SchUnknownDialect`. 2019-09 and draft-07 are close and not the
     same: `items` means different things in 2020-12 and 2019-09, so a
@@ -196,11 +192,20 @@ implementation can read it.
 13. **A compile is bounded at 128 levels of nesting by default.**
     `SchOptions.max_depth` moves the line and `SchDepthLimit` is what a
     deeper schema answers.
-14. **`{}` and `null` cannot be told apart through this package
-    today.** The standard library's JSON accessors answer the same for
-    both, and `type` is the most used keyword in the language. The
-    defect is filed against the toolchain; see "What is not included".
-15. **`scherror.kind_name` is stable across releases.** Programs quote
+14. **Numbers compare by value.** `1` and `1.0` are equal for `const`,
+    `enum` and `uniqueItems`, and `1.0` is an `integer`. `multipleOf`
+    allows a relative error of one part in a billion in the quotient,
+    so `0.0075` is a multiple of `0.0001` although the division is not
+    exact in binary floating point.
+15. **A string's length counts characters, not bytes.** `minLength`
+    and `maxLength` count Unicode code points, as 2020-12 section 6.3
+    says.
+16. **An annotation's value is a copy.** A value taken from a parsed
+    document does not keep that document alive in the standard library
+    today, so each annotation holds its own copy of the value the
+    schema wrote, and an output stays readable after its schema is
+    dropped.
+17. **`scherror.kind_name` is stable across releases.** Programs quote
     the spellings in their own messages and tests.
 
 ## What is not included
@@ -229,16 +234,13 @@ implementation can read it.
 - **A JSON value type of this package's own.** Instances are
   `std.json`'s value, because a second JSON type in one program would
   mean converting every document before it could be checked.
-- **A correct `type` against `{}` and `null`, and a deep equality.**
-  `const`, `enum` and `uniqueItems` are all defined by structural
-  equality with `1` and `1.0` equal, and rendering and comparing text
-  gets that wrong. `json.type_of`, `json.is_null` and `json.equals`
-  are the smallest additions to the standard library that would close
-  both, filed as
-  `std-json-cannot-tell-an-empty-object-from-null-and-has-no-deep-equality`.
-- **Cheap access to one array element.** `json.to_list` materialises
-  the whole array, so `uniqueItems` over a 100 000-element array is
-  quadratic in allocations rather than in comparisons.
+- **Vocabularies switched off by a custom meta-schema.** A `$schema`
+  naming a meta-schema whose `$vocabulary` leaves out, say, the
+  validation vocabulary does not stop this package asserting `minimum`.
+  `$vocabulary` is read only to refuse a vocabulary nobody here
+  recognises.
+- **Regular expressions with Unicode property classes.** `\p{Letter}`
+  and the rest are refused as `SchBadPattern`; see rule 7.
 - **A microcontroller build, and a browser build.** `std.json` is
   refused on the embedded tier and has no wasm runtime.
 
@@ -247,8 +249,7 @@ implementation can read it.
 - [jsonpath-nv](https://novo-lang.org/packages/jsonpath-nv) selects
   parts of a JSON document by RFC 9535. It answers which parts of a
   document you asked for; this package answers whether the document is
-  what it should be. Both select over `std.json`'s value and both are
-  blocked by the same four gaps in it.
+  what it should be. Both work over `std.json`'s value.
 - [url-nv](https://novo-lang.org/packages/url-nv) and
   [punycode-nv](https://novo-lang.org/packages/punycode-nv) are what a
   caller registers with `schformat.with_format` for the `uri` and
@@ -261,52 +262,32 @@ implementation can read it.
 ## Tests
 
 ```bash
-novo test --isolate tests/schcompile_tests.nv    # 5 tests: the compile and the registry
-novo test --isolate tests/schvalidate_tests.nv   # 7 tests: the checks and what they say
+novo test tests/schcompile_tests.nv            # the compile and the registry
+novo test tests/schvalidate_tests.nv           # the checks and what they say
+novo test tests/schfault_tests.nv              # every fault, URI resolution, the output
+novo test tests/suite_core_tests.nv            # the test suite: references and anchors
+novo test tests/suite_applicator_tests.nv      # the test suite: the applicators
+novo test tests/suite_validation_tests.nv      # the test suite: the validation keywords
+novo test tests/suite_annotation_tests.nv      # the test suite: unevaluated*, format, content
+novo test tests/suite_format_tests.nv          # the test suite: the built-in formats
+bash tests/coverage.sh                         # line coverage over src/
 ```
 
-The specification itself is the reference for behaviour, and
-`jsonschema` in Python and pydantic's validation half are the references
-for the shape of the API. The oracle is the JSON-Schema-Test-Suite, the
-community suite the specification's authors maintain: groups of
-`{schema, tests: [{data, valid}]}`, one file per keyword.
-`tests/schvalidate_tests.nv` is written in that shape, so the generated
-run that replaces it when the bodies land is the same assertions with
-more of them.
+The oracle is the JSON-Schema-Test-Suite, the conformance suite the
+specification's authors maintain. `tools/suite.py` writes the
+`suite_*_tests.nv` files from its draft2020-12 directory: 1291 cases in
+45 files, with the suite's remote documents and the 2020-12
+meta-schemas registered, and 401 cases for the built-in formats from
+its optional format files. Python's `jsonschema` gives the suite's
+answer on every one of the 1291, which the script checks. Left out:
+`vocabulary.json`, which switches vocabularies off by meta-schema; the
+two groups whose `pattern` uses `\p{Letter}`; and the `hostname` cases
+of A-labels that are not valid IDNA.
 
-The suite records only whether an instance was valid and says nothing
-about what a validator should say when it was not. The assertions about
-the messages and the three locations are therefore this package's own
-claim, and the ones a reviewer should read hardest.
-
-The tests compile today and fail at run, each on the `not implemented`
-panic that is its body. That is the expected state of an interface
-release. They turn green one at a time as bodies land.
-
-## Implementation status
-
-Nothing is implemented, apart from the one constant. Every function
-here is declared with its signature and its effect row, and every body
-is a `todo()`.
-
-| Item | Implemented |
-| --- | --- |
-| `schvocab.DIALECT_2020_12` | yes (it is a constant) |
-| `scherror.fault`, `.kind_name`, `.message` | no |
-| `schvocab.vocabulary_uri`, `.vocabulary_named` | no |
-| `schvocab.is_implemented`, `.is_annotation_only` | no |
-| `schvocab.implemented_keywords`, `.unimplemented_keywords` | no |
-| `schvocab.keyword_vocabulary`, `.keyword_is_asserted`, `.type_names` | no |
-| `schcompile.default_options`, `.registry`, `.with_document`, `.document_uris` | no |
-| `schcompile.external_refs`, `.missing_refs` | no |
-| `schcompile.compile`, `.compile_with`, `.compile_with_options`, `.faults` | no |
-| `schcompile.resource_ids`, `.unsupported_vocabularies` | no |
-| `schvalidate.validate`, `.validate_with`, `.is_valid` | no |
-| `schvalidate.first_error`, `.errors_at`, `.failed_locations`, `.error_text` | no |
-| `schvalidate.flag_output`, `.basic_output` | no |
-| `schvalidate.annotations_at`, `.annotation` | no |
-| `schformat.formats`, `.builtin_formats`, `.with_format`, `.without_format` | no |
-| `schformat.has_format`, `.format_names`, `.check_format`, `.unsupported_formats` | no |
+The suite records only whether an instance was valid. The assertions
+about the messages and the three locations are this package's own
+claim, in `schvalidate_tests.nv` and `schfault_tests.nv`, and the ones a
+reviewer should read hardest.
 
 ## Licence
 
