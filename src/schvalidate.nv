@@ -94,8 +94,8 @@ struct Eval
 
 // What stays the same for a whole validation.
 struct Run
-    ix: SchIndex
-    formats: SchFormats
+    ix: schcompile.SchIndex
+    formats: schformat.SchFormats
     // Whether to build units and annotations, or only the answer.
     collect: Bool
 
@@ -152,16 +152,10 @@ fn fail(var e: Eval, r: Run, at: At, kw: Str, message: Str)
                                       absolute_keyword_location: absolute, keyword: kw, message: message })
 
 // An annotation of keyword `kw` at `at`.
-//
-// The value is copied into a document of its own.  A value `json.get`
-// answers points into the schema document and does not keep it alive,
-// so an output holding one would read freed memory once the schema was
-// dropped.
 fn note(var e: Eval, r: Run, at: At, kw: Str, value: JsonValueH)
     if r.collect
-        let owned = json.parse(json.stringify(value)) ?? json.null()
         list.push(e.annotations, SchAnnotation { instance_location: at.iloc, keyword_location: into(at, kw).kloc,
-                                                 keyword: kw, value: owned })
+                                                 keyword: kw, value: value })
 
 // Take a subschema's evaluation into `e`.  Its failures always come
 // along; its annotations only when it held.  When it applied to the
@@ -249,7 +243,7 @@ fn entered(at: At, node: JsonValueH) -> At
             At { base: uri, rptr: "", kloc: at.kloc, iloc: at.iloc, scope: scope, rooted: false }
 
 // Follow a reference to its target, entering the target's resource.
-fn follow(r: Run, t: SchTarget, at: At, kw: Str, inst: JsonValueH) -> Eval
+fn follow(r: Run, t: schcompile.SchTarget, at: At, kw: Str, inst: JsonValueH) -> Eval
     var scope = list.clone(at.scope)
     if list.len(scope) == 0 or scope[list.len(scope) - 1] != t.base
         list.push(scope, t.base)
@@ -261,7 +255,7 @@ fn follow(r: Run, t: SchTarget, at: At, kw: Str, inst: JsonValueH) -> Eval
 // unless it carries a `$dynamicAnchor` of the fragment's name, in which
 // case the outermost resource in the dynamic scope with such an anchor
 // wins (2020-12 section 8.2.3.2).
-fn dynamic_target(r: Run, at: At, ref: Str, t: SchTarget) -> SchTarget
+fn dynamic_target(r: Run, at: At, ref: Str, t: schcompile.SchTarget) -> schcompile.SchTarget
     let sep = str.index(ref, "#") ?? str.len(ref)
     let name = str.slice(ref, sep + 1, str.len(ref))
     if json.get_str(t.node, "\$dynamicAnchor") != Some(name) or name == ""
@@ -320,8 +314,7 @@ fn assertions(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
     if let Some(c) = json.get(node, "const")
         if not json.equals(inst, c)
             fail(e, r, at, "const", "${show(inst)} is not ${show(c)}")
-    let kind = json.type_of(inst)
-    match kind
+    match json.type_of(inst)
         "number" => numbers(e, r, node, at, inst)
         "string" => strings(e, r, node, at, inst)
         "array"  => counts(e, r, node, at, "maxItems", "minItems", json.len(inst) ?? 0, "items")
@@ -609,7 +602,8 @@ fn annotations(var e: Eval, r: Run, node: JsonValueH, at: At)
             note(e, r, at, key, json.get(node, key) ?? json.null())
 
 // Run a validation.
-fn run(s: SchSchema, instance: JsonValueH, formats: SchFormats, collect: Bool) -> Eval
+fn run(s: schcompile.SchSchema, instance: JsonValueH, formats: schformat.SchFormats,
+       collect: Bool) -> Eval
     let r = Run { ix: s.index, formats: formats, collect: collect }
     var scope: [Str] = []
     if s.id != ""
@@ -620,7 +614,7 @@ fn run(s: SchSchema, instance: JsonValueH, formats: SchFormats, collect: Bool) -
 
 // The formats `validate` asserts: the built-in ones when the schema was
 // compiled with `assert_formats`, and none otherwise.
-fn default_formats(s: SchSchema) -> SchFormats
+fn default_formats(s: schcompile.SchSchema) -> schformat.SchFormats
     if s.options.assert_formats
         return schformat.builtin_formats()
     schformat.formats()
@@ -652,7 +646,7 @@ fn default_formats(s: SchSchema) -> SchFormats
 //                             let out = schvalidate.validate(s, i)
 //                             println("${list.len(out.errors)}")
 // ```
-pub fn validate(s: SchSchema, instance: JsonValueH) -> SchOutput []
+pub fn validate(s: schcompile.SchSchema, instance: JsonValueH) -> SchOutput []
     validate_with(s, instance, default_formats(s))
 
 // Validate with a format registry, so `format` can assert.
@@ -681,7 +675,8 @@ pub fn validate(s: SchSchema, instance: JsonValueH) -> SchOutput []
 //                             let out = schvalidate.validate_with(s, i, schformat.builtin_formats())
 //                             println("${out.valid}")
 // ```
-pub fn validate_with(s: SchSchema, instance: JsonValueH, formats: SchFormats) -> SchOutput []
+pub fn validate_with(s: schcompile.SchSchema, instance: JsonValueH,
+                     formats: schformat.SchFormats) -> SchOutput []
     let e = run(s, instance, formats, true)
     SchOutput { valid: e.valid, errors: e.errors, annotations: e.annotations }
 
@@ -708,7 +703,7 @@ pub fn validate_with(s: SchSchema, instance: JsonValueH, formats: SchFormats) ->
 //                         None    => println("not json")
 //                         Some(i) => println("${schvalidate.is_valid(s, i)}")
 // ```
-pub fn is_valid(s: SchSchema, instance: JsonValueH) -> Bool []
+pub fn is_valid(s: schcompile.SchSchema, instance: JsonValueH) -> Bool []
     run(s, instance, default_formats(s), false).valid
 
 // The first failure, or `None`.
