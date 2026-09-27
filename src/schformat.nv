@@ -1,64 +1,49 @@
 // schformat.nv — `format`, as a registry the caller extends.
 //
-// Every body here is a `todo()`; the signatures are the design.
+// `format` is an annotation unless somebody says otherwise (2020-12
+// section 7).  A schema that says `"format": "email"` describes the
+// value, and a validator that refused a string on those grounds would
+// refuse documents every other implementation accepts.
+// `schvalidate.validate_with` asserts the formats a registry knows, and
+// `SchOptions.assert_formats` asserts the built-in ones for
+// `schvalidate.validate`.
 //
-// `format` IS AN ANNOTATION UNLESS SOMEBODY SAYS OTHERWISE, which is
-// 2020-12 § 7 and not this package being cautious.  A schema that says
-// `"format": "email"` is describing the value, and an implementation
-// that refused a string on those grounds would refuse documents every
-// other implementation accepts.  `SchOptions.assert_formats` and the
-// format-assertion vocabulary are the two ways a caller turns it on.
+// The built-in formats are the ones whose grammar is short, unambiguous
+// and ASCII:
 //
-// WHICH FORMATS ARE BUILT IN, AND WHY THOSE.  The ones whose grammar is
-// short, unambiguous and ASCII — a check a reader can verify against
-// the RFC in a minute:
+//   date, time, date-time, duration        RFC 3339 section 5.6 and
+//                                          appendix A
+//   uuid                                   RFC 4122 section 3
+//   ipv4, ipv6                             RFC 2673 section 3.2 and
+//                                          RFC 4291 section 2.2
+//   json-pointer, relative-json-pointer    RFC 6901 and the relative
+//                                          JSON Pointer draft
+//   hostname                               RFC 1123 section 2.1
+//   regex                                  `regex.error` answering None
 //
-//   date, time, date-time, duration   RFC 3339 §§ 5.6 and appendix A
-//   uuid                              RFC 4122's textual form
-//   ipv4, ipv6                        RFC 2673 and RFC 4291
-//   json-pointer, relative-json-pointer   RFC 6901 and its draft
-//   hostname                          RFC 1123's preferred name syntax
-//   regex                             `regex.error` answering None
-//
-// AND WHICH ARE NOT, each with the package that answers it.  These have
-// grammars that are long, disputed, or need tables, and a validator
-// that approximated one would reject addresses that work:
-//
-//   email, idn-email      RFC 5322's addr-spec is famously not a
-//                         regular language; nobody's five-line check is
-//                         right.  A caller registers one.
-//   uri, uri-reference    url-nv's parser is the answer, and depending
-//   iri, iri-reference    on it here would put a URL parser in the
-//                         closure of every schema that never mentions
-//                         one.
-//   idn-hostname          needs punycode-nv and IDNA's tables.
-//   uri-template          RFC 6570 is a language of its own.
-//
-// A FORMAT NOBODY KNOWS STAYS AN ANNOTATION, even in assertion mode.
-// 2020-12 § 7.2.1 says an implementation must not fail a value for a
-// format it does not implement, so `check_format` answers `None` for an
-// unknown name and the validator records an annotation rather than a
-// failure.  That is why the answer is `?Bool` and not `Bool`.
+// The ones left out have grammars that are long, disputed or need
+// tables, and `unsupported_formats` lists them with the package that
+// answers each.  A format a registry does not know stays an annotation
+// even in assertion mode, because 2020-12 section 7.2.1 forbids failing
+// a value for a format an implementation does not have.  That is why
+// `check_format` answers `?Bool`.
 
 // The formats a validation knows.
 //
-// A value, so two schemas in one program can see different sets: a
-// service validating its own configuration may assert `email` with a
-// strict check while the payloads it receives from outside use the
-// lenient one.
+// A value, so two validations in one program can see different sets.
 pub struct SchFormats
-    // How many names it holds.  Public so a caller can assert on it;
-    // the names themselves are reached by `format_names`.
+    // How many names it holds.
     count: Int
-    // Whether the built-in set is included.  Public because "did I
-    // start from empty or from the defaults" is the question a caller
-    // debugging a surprising pass most often has.
+    // Whether it started from the built-in set.
     has_builtins: Bool
+    // The names, and the check for each, in the order added.
+    names: [Str]
+    checks: [fn(Str) -> Bool]
 
 // An empty registry: every `format` is an annotation.
 //
-// The starting point for a caller that wants to assert exactly the
-// formats it names and nothing else.
+// The starting point for a caller that asserts exactly the formats it
+// names.
 //
 // ```novo
 // use schformat
@@ -67,7 +52,7 @@ pub struct SchFormats
 //     println("${schformat.formats().count}")
 // ```
 pub fn formats() -> SchFormats []
-    todo("schema-nv.schformat.formats")
+    SchFormats { count: 0, has_builtins: false, names: [], checks: [] }
 
 // The formats this package carries, listed in the module header.
 //
@@ -78,17 +63,18 @@ pub fn formats() -> SchFormats []
 //     println("${schformat.builtin_formats().has_builtins}")
 // ```
 pub fn builtin_formats() -> SchFormats []
-    todo("schema-nv.schformat.builtin_formats")
+    let names = ["date", "time", "date-time", "duration", "uuid", "ipv4", "ipv6", "json-pointer",
+                 "relative-json-pointer", "hostname", "regex"]
+    let checks: [fn(Str) -> Bool] = [is_date, is_time, is_date_time, is_duration, is_uuid, is_ipv4, is_ipv6,
+                                     is_json_pointer, is_relative_json_pointer, is_hostname, is_regex]
+    SchFormats { count: list.len(names), has_builtins: true, names: names, checks: checks }
 
 // A registry with one more format in it.
 //
-// `check` answers whether a string is in the format.  It takes only the
-// string — a format check has no access to the schema, the instance
-// around it or anything else, which is 2020-12's own model and also
-// what keeps a caller's check testable on its own.
-//
-// A name already in the registry is replaced, so a caller can start
-// from `builtin_formats()` and override one.
+// `check` answers whether a string is in the format.  It is given only
+// the string, which is 2020-12's own model of a format.  A name already
+// in the registry is replaced, so a caller can start from
+// `builtin_formats()` and override one.
 //
 // ```novo
 // use schformat
@@ -101,13 +87,23 @@ pub fn builtin_formats() -> SchFormats []
 //     println("${reg.count}")
 // ```
 pub fn with_format(r: SchFormats, name: Str, check: fn(Str) -> Bool) -> SchFormats []
-    todo("schema-nv.schformat.with_format")
+    var names: [Str] = []
+    var checks: [fn(Str) -> Bool] = []
+    for i in 0..r.count
+        if r.names[i] != name
+            list.push(names, r.names[i])
+            list.push(checks, r.checks[i])
+    list.push(names, name)
+    list.push(checks, check)
+    SchFormats { count: list.len(names),
+        has_builtins: r.has_builtins,
+        names: names,
+        checks: checks }
 
 // A registry with one format removed.
 //
-// For a caller that wants the built-ins minus one it disagrees with —
-// `hostname`, most often, because RFC 1123 and what a container
-// orchestrator calls a hostname are not the same thing.
+// For a caller that wants the built-ins minus one it disagrees with,
+// such as `hostname`.
 //
 // ```novo
 // use schformat
@@ -118,7 +114,16 @@ pub fn with_format(r: SchFormats, name: Str, check: fn(Str) -> Bool) -> SchForma
 //     println("${shown}")
 // ```
 pub fn without_format(r: SchFormats, name: Str) -> SchFormats []
-    todo("schema-nv.schformat.without_format")
+    var names: [Str] = []
+    var checks: [fn(Str) -> Bool] = []
+    for i in 0..r.count
+        if r.names[i] != name
+            list.push(names, r.names[i])
+            list.push(checks, r.checks[i])
+    SchFormats { count: list.len(names),
+        has_builtins: r.has_builtins,
+        names: names,
+        checks: checks }
 
 // Whether the registry knows a format.
 //
@@ -130,7 +135,7 @@ pub fn without_format(r: SchFormats, name: Str) -> SchFormats []
 //     println("${known}")
 // ```
 pub fn has_format(r: SchFormats, name: Str) -> Bool []
-    todo("schema-nv.schformat.has_format")
+    list.contains(r.names, name)
 
 // Every name the registry knows, sorted.
 //
@@ -142,17 +147,14 @@ pub fn has_format(r: SchFormats, name: Str) -> Bool []
 //     println("${list.len(schformat.format_names(schformat.builtin_formats()))}")
 // ```
 pub fn format_names(r: SchFormats) -> [Str] []
-    todo("schema-nv.schformat.format_names")
+    list.sort(list.clone(r.names))
 
 // Whether a string is in a format: `Some(true)`, `Some(false)`, or
 // `None` for a format the registry does not know.
 //
-// The three-valued answer is 2020-12 § 7.2.1's rule made into a type.
 // An implementation must not fail a value for a format it does not
-// implement, so `None` is what the validator turns into an annotation
-// and never into a failure.  A `Bool` here would have forced a
-// choice between failing unknown formats and passing them, and both
-// are wrong.
+// have (2020-12 section 7.2.1), so the validator records `None` as an
+// annotation and never as a failure.
 //
 // ```novo
 // use schformat
@@ -164,15 +166,14 @@ pub fn format_names(r: SchFormats) -> [Str] []
 //         None     => println("nobody registered that format")
 // ```
 pub fn check_format(r: SchFormats, name: Str, text: Str) -> ?Bool []
-    todo("schema-nv.schformat.check_format")
+    for i in 0..r.count
+        if r.names[i] == name
+            return Some(r.checks[i](text))
+    None
 
-// The formats 2020-12 names that this package does NOT carry, with the
-// package that answers each one.
-//
-// `"email"`, `"uri (url-nv)"`, `"idn-hostname (punycode-nv)"` and the
-// rest — a list rather than prose, so a program can print it and a
-// caller can see what it is expected to register.  The module header
-// argues why each one is outside.
+// The formats 2020-12 names that this package does not carry, each with
+// the package that answers it where there is one: `email`,
+// `uri (url-nv)`, `idn-hostname (punycode-nv)` and the rest.
 //
 // ```novo
 // use std.list
@@ -182,4 +183,267 @@ pub fn check_format(r: SchFormats, name: Str, text: Str) -> ?Bool []
 //     println("${list.len(schformat.unsupported_formats())}")
 // ```
 pub fn unsupported_formats() -> [Str] []
-    todo("schema-nv.schformat.unsupported_formats")
+    ["email", "idn-email", "uri (url-nv)", "uri-reference (url-nv)", "iri (url-nv)", "iri-reference (url-nv)",
+     "idn-hostname (punycode-nv)", "uri-template"]
+
+// The byte at `i`, or -1.
+fn at(s: Str, i: Int) -> Int
+    str.byte_at_or(s, i, 0 - 1)
+
+// Whether a byte is an ASCII digit.
+fn digit(b: Int) -> Bool
+    b >= '0' and b <= '9'
+
+// Whether a byte is a hexadecimal digit.
+fn hex(b: Int) -> Bool
+    digit(b) or b >= 'a' and b <= 'f' or b >= 'A' and b <= 'F'
+
+// The number written by `len` digits at `i`, or -1 when any is not a
+// digit.
+fn number(s: Str, i: Int, len: Int) -> Int
+    var n = 0
+    for k in i..i + len
+        if not digit(at(s, k))
+            return 0 - 1
+        n = n * 10 + at(s, k) - '0'
+    n
+
+// Whether a year is a leap year in the Gregorian calendar.
+fn leap(y: Int) -> Bool
+    y % 4 == 0 and y % 100 != 0 or y % 400 == 0
+
+// The days in a month.
+fn days_in(y: Int, m: Int) -> Int
+    if m == 2
+        if leap(y)
+            return 29
+        return 28
+    if m == 4 or m == 6 or m == 9 or m == 11
+        return 30
+    31
+
+// RFC 3339 full-date: `YYYY-MM-DD`, with a day that exists.
+fn is_date(s: Str) -> Bool
+    if str.len(s) != 10 or at(s, 4) != '-' or at(s, 7) != '-'
+        return false
+    let y = number(s, 0, 4)
+    let m = number(s, 5, 2)
+    let d = number(s, 8, 2)
+    y >= 0 and m >= 1 and m <= 12 and d >= 1 and d <= days_in(y, m)
+
+// RFC 3339 full-time: `HH:MM:SS`, optional fractional seconds, and an
+// offset, `Z` or `+HH:MM` or `-HH:MM`.  A leap second, `:60`, is
+// allowed only where the time is 23:59 in UTC.
+fn is_time(s: Str) -> Bool
+    let n = str.len(s)
+    if n < 9 or at(s, 2) != ':' or at(s, 5) != ':'
+        return false
+    let h = number(s, 0, 2)
+    let m = number(s, 3, 2)
+    let sec = number(s, 6, 2)
+    if h < 0 or h > 23 or m < 0 or m > 59 or sec < 0 or sec > 60
+        return false
+    var i = 8
+    if at(s, i) == '.'
+        i = i + 1
+        let first = i
+        while digit(at(s, i))
+            i = i + 1
+        if i == first
+            return false
+    let z = at(s, i)
+    var offset = 0
+    if z == 'Z' or z == 'z'
+        if i + 1 != n
+            return false
+    else if z == '+' or z == '-'
+        if i + 6 != n or at(s, i + 3) != ':'
+            return false
+        let oh = number(s, i + 1, 2)
+        let om = number(s, i + 4, 2)
+        if oh < 0 or oh > 23 or om < 0 or om > 59
+            return false
+        offset = oh * 60 + om
+        if z == '-'
+            offset = 0 - offset
+    else
+        return false
+    if sec == 60
+        return ((h * 60 + m - offset) % 1440 + 1440) % 1440 == 1439
+    true
+
+// RFC 3339 date-time: a full-date, `T`, and a full-time.
+fn is_date_time(s: Str) -> Bool
+    let t = at(s, 10)
+    (t == 'T' or t == 't') and is_date(str.slice(s, 0, 10)) and is_time(str.slice(s, 11, str.len(s)))
+
+// Read `digits unit` pairs from `i` whose units come from `units` in
+// order, each at most once: the offset after the last pair, and how
+// many pairs there were, as `offset * 8 + count`.  Stops at a unit out
+// of order or at the end.
+fn units_from(s: Str, i: Int, units: Str) -> Int
+    var j = i
+    var u = 0
+    var count = 0
+    for _ in 0..str.len(units)
+        let start = j
+        while digit(at(s, j))
+            j = j + 1
+        if j == start
+            return start * 8 + count
+        var found = 0 - 1
+        for k in u..str.len(units)
+            if found < 0 and at(s, j) == str.byte_at_or(units, k, 0)
+                found = k
+        if found < 0
+            return start * 8 + count
+        u = found + 1
+        j = j + 1
+        count = count + 1
+    j * 8 + count
+
+// RFC 3339 appendix A duration: `P`, then weeks alone, or years,
+// months and days in order with no gap, then an optional `T` with
+// hours, minutes and seconds in order with no gap.
+fn is_duration(s: Str) -> Bool
+    let n = str.len(s)
+    if at(s, 0) != 'P' or n < 3
+        return false
+    let weeks = units_from(s, 1, "W")
+    if weeks % 8 == 1 and weeks / 8 == n
+        return true
+    let day_part = units_from(s, 1, "YMD")
+    let i = day_part / 8
+    if not gapless(s, 1, i, "YMD")
+        return false
+    if i == n
+        return day_part % 8 > 0
+    if at(s, i) != 'T'
+        return false
+    let time_part = units_from(s, i + 1, "HMS")
+    time_part % 8 > 0 and time_part / 8 == n and gapless(s, i + 1, n, "HMS")
+
+// Whether the units between `from` and `to` are consecutive in
+// `units`: `Y` then `M` then `D`, never `Y` then `D`.
+fn gapless(s: Str, from: Int, to: Int, units: Str) -> Bool
+    var last = 0 - 1
+    for k in from..to
+        let b = at(s, k)
+        if not digit(b)
+            var here = 0 - 1
+            for u in 0..str.len(units)
+                if str.byte_at_or(units, u, 0) == b
+                    here = u
+            if last >= 0 and here != last + 1
+                return false
+            last = here
+    true
+
+// A UUID's text form: 8-4-4-4-12 hexadecimal digits.
+fn is_uuid(s: Str) -> Bool
+    if str.len(s) != 36
+        return false
+    for i in 0..36
+        let b = at(s, i)
+        if i == 8 or i == 13 or i == 18 or i == 23
+            if b != '-'
+                return false
+        else if not hex(b)
+            return false
+    true
+
+// A dotted-quad IPv4 address: four decimal numbers up to 255, with no
+// leading zeros.
+fn is_ipv4(s: Str) -> Bool
+    let parts = str.split(s, ".")
+    if list.len(parts) != 4
+        return false
+    for p in parts
+        let n = str.len(p)
+        if n == 0 or n > 3 or n > 1 and at(p, 0) == '0' or number(p, 0, n) < 0 or number(p, 0, n) > 255
+            return false
+    true
+
+// Whether a string is 1 to 4 hexadecimal digits.
+fn hex_group(g: Str) -> Bool
+    let n = str.len(g)
+    if n < 1 or n > 4
+        return false
+    for i in 0..n
+        if not hex(at(g, i))
+            return false
+    true
+
+// How many 16-bit groups a run of colon-separated groups holds, or -1
+// when one is malformed.  An IPv4 address may end the run when `last`
+// is set, and counts as two.
+fn groups(run: Str, last: Bool) -> Int
+    if run == ""
+        return 0
+    let parts = str.split(run, ":")
+    let n = list.len(parts)
+    for i in 0..n
+        if last and i == n - 1 and str.contains(parts[i], ".")
+            if not is_ipv4(parts[i])
+                return 0 - 1
+        else if not hex_group(parts[i])
+            return 0 - 1
+    if last and str.contains(parts[n - 1], ".")
+        return n + 1
+    n
+
+// An IPv6 address in RFC 4291 section 2.2's text forms: eight groups,
+// or fewer with one `::`, and optionally a dotted IPv4 address at the
+// end.
+fn is_ipv6(s: Str) -> Bool
+    match str.index(s, "::")
+        None    =>
+            groups(s, true) == 8
+        Some(i) =>
+            let head = str.slice(s, 0, i)
+            let tail = str.slice(s, i + 2, str.len(s))
+            if str.contains(tail, "::")
+                return false
+            let a = groups(head, false)
+            let b = groups(tail, true)
+            a >= 0 and b >= 0 and a + b < 8
+
+// An RFC 6901 JSON Pointer: empty, or `/`-separated tokens in which
+// `~` is always followed by `0` or `1`.
+fn is_json_pointer(s: Str) -> Bool
+    if s != "" and at(s, 0) != '/'
+        return false
+    for i in 0..str.len(s)
+        if at(s, i) == '~' and at(s, i + 1) != '0' and at(s, i + 1) != '1'
+            return false
+    true
+
+// A relative JSON Pointer: a non-negative integer with no leading
+// zeros, then `#` or a JSON Pointer.
+fn is_relative_json_pointer(s: Str) -> Bool
+    var i = 0
+    while digit(at(s, i))
+        i = i + 1
+    if i == 0 or i > 1 and at(s, 0) == '0'
+        return false
+    let rest = str.slice(s, i, str.len(s))
+    rest == "#" or is_json_pointer(rest)
+
+// An RFC 1123 host name: labels of letters, digits and hyphens, 1 to 63
+// bytes, not starting or ending with a hyphen, 253 bytes in all.
+fn is_hostname(s: Str) -> Bool
+    if str.len(s) == 0 or str.len(s) > 253
+        return false
+    for label in str.split(s, ".")
+        let n = str.len(label)
+        if n == 0 or n > 63 or at(label, 0) == '-' or at(label, n - 1) == '-'
+            return false
+        for i in 0..n
+            let b = at(label, i)
+            if not (digit(b) or b >= 'a' and b <= 'z' or b >= 'A' and b <= 'Z' or b == '-')
+                return false
+    true
+
+// A regular expression `std.regex` compiles.
+fn is_regex(s: Str) -> Bool
+    regex.error(s) == None

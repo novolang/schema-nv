@@ -1,97 +1,635 @@
 // schvalidate.nv — an instance against a compiled schema, and the
 // reasons it did not match.
 //
-// Every body here is a `todo()`; the signatures are the design.
+// Validation cannot fail, so nothing here answers a `Result`.  An
+// instance that does not match is the answer: `SchOutput.valid` is
+// false and `SchOutput.errors` says why.
 //
-// VALIDATION CANNOT FAIL, so nothing here answers a `Result`.  An
-// instance that does not match is not an error; it IS the answer, and
-// `SchOutput.valid` is that answer with `SchOutput.errors` beside it.
-// Everything fallible happened in `schcompile`, once.
+// Every failure is reported, not only the first.  A form with six bad
+// fields tells a person about six, and an agent whose tool call does
+// not match its schema is told everything that is wrong with it.
+// `is_valid` is the fast path for a caller that wants only the answer:
+// it stops at the first failure and builds no messages.
 //
-// EVERY FAILURE IS A LIST, NOT A FIRST ONE, which is the package's row
-// on the grid — "validation with reasons" — and the decision the whole
-// output shape follows from.  A form with six bad fields should tell a
-// person about six, not about the first; an agent handed a tool call
-// that does not match its schema should be told everything that is
-// wrong with it so its next attempt is right rather than one step
-// closer.  `is_valid` is the fast path for a caller that only wants the
-// boolean, and it stops early because it can.
+// Every failure names three places, which is 2020-12 section 12.3's
+// output unit:
 //
-// EVERY FAILURE NAMES THREE PLACES, which is 2020-12 § 12.3's output
-// unit and what makes a reason actionable:
+//   instance_location          where in the document: `/users/2/age`
+//   keyword_location           the path taken through the schema,
+//                              with `$ref` as a step
+//   absolute_keyword_location  the same place as a URI, naming the
+//                              resource a `$ref` led into
 //
-//   instance_location          where in the DOCUMENT — `/users/2/age`
-//   keyword_location           where in the SCHEMA, by the path taken,
-//                              `$ref`s followed — `/properties/users/
-//                              items/$ref/properties/age/minimum`
-//   absolute_keyword_location  the same, as a URI, so it names the
-//                              resource a `$ref` went into
+// The keywords run in a fixed order: the ones about the instance
+// itself, then the in-place applicators, then the ones about its
+// members, then `unevaluatedItems` and `unevaluatedProperties`, which
+// read what the others evaluated.  So a failure about a container comes
+// before the failures about its members.  An applicator whose failure
+// is explained by its subschemas' failures adds no unit of its own;
+// `anyOf`, `oneOf`, `not` and `contains` do, because no single
+// subschema's failure explains theirs.
 //
-// The second and the third differ exactly when a `$ref` was followed,
-// and that is the case where a reader needs both: one says how the
-// validator got there, the other says where "there" is.
-//
-// ANNOTATIONS ARE COLLECTED, because `unevaluatedItems` and
-// `unevaluatedProperties` are defined in terms of them — a property is
-// "evaluated" when some applicator produced an annotation for it — and
-// because `title`, `default` and `format` are what a form generator
-// wants out of a schema.  A schema with no `unevaluated*` keyword
-// validates without carrying them, which `SchSchema.uses_unevaluated`
-// is how the validator knows.
+// Annotations are collected from every subschema that succeeded: the
+// meta-data keywords, `format`, the content keywords and unknown
+// keywords, each with the value the schema wrote.  A subschema that
+// failed contributes none (2020-12 section 7.7.1).
 
 use std.json
 use schcompile
 use schformat
+use schvocab
 
 // One thing that was wrong, or one annotation that was produced.
 pub struct SchUnit
-    // An RFC 6901 pointer into the INSTANCE: `/users/2/age`, `""` for
-    // the document as a whole.
+    // An RFC 6901 pointer into the instance: `/users/2/age`, or `""`
+    // for the document as a whole.
     instance_location: Str
-    // An RFC 6901 pointer into the SCHEMA, along the path the
+    // An RFC 6901 pointer into the schema, along the path the
     // validator took, with `$ref` appearing as a step.
     keyword_location: Str
-    // The same location as an absolute URI, which names the resource a
-    // `$ref` led into.  Equal to `keyword_location` prefixed by the
-    // root `$id` when no `$ref` was followed; empty when the schema
-    // declared no `$id` and none was followed.
+    // The same place as an absolute URI, which names the resource a
+    // `$ref` led into.  Empty while the path is inside a resource with
+    // no URI, such as a root schema with no `$id`.
     absolute_keyword_location: Str
-    // The keyword that decided: `"minimum"`, `"required"`, `"type"`.
+    // The keyword that decided: `minimum`, `required`, `type`.
     keyword: Str
-    // A sentence about this failure, with the offending value in it.
-    // Rendered here rather than left to the caller because the useful
-    // message needs the keyword's own vocabulary — "expected at least
-    // 3 items, found 1" — and every caller writing that switch again
-    // would write it differently.
+    // A sentence about this failure, with the offending value in it:
+    // `17 is less than the minimum of 18`.
     message: Str
 
-// One annotation an applicator produced.
+// One annotation a keyword produced.
 pub struct SchAnnotation
+    // Where in the instance it applies.
     instance_location: Str
+    // Where in the schema it was written, along the path taken.
     keyword_location: Str
+    // The keyword: `title`, `default`, `format`.
     keyword: Str
-    // The annotation's value, as the schema wrote it: the `title`
-    // string, the `default` value, the list of property names
-    // `properties` matched.
+    // The keyword's value, as the schema wrote it.
     value: JsonValueH
 
 // What a validation produced.
 pub struct SchOutput
     valid: Bool
-    // Every failure, in the order the validator reached them — which
-    // is document order within a keyword and schema order between
-    // them.  Empty when `valid`.
+    // Every failure, in the order the validator reached them.  Empty
+    // when `valid`.
     errors: [SchUnit]
-    // Every annotation from a subschema that succeeded.  2020-12
-    // § 7.7.1 drops the annotations of a subschema that failed, and so
-    // does this: an annotation from a branch that did not apply would
-    // describe an instance nobody accepted.
+    // Every annotation from a subschema that succeeded.
     annotations: [SchAnnotation]
+
+// What one subschema's evaluation produced: whether it held, its units,
+// and which members of the instance it evaluated, which
+// `unevaluatedItems` and `unevaluatedProperties` read.
+struct Eval
+    var valid: Bool
+    var errors: [SchUnit]
+    var annotations: [SchAnnotation]
+    // The property names evaluated at this instance location.
+    var props: [Str]
+    // How many leading items were evaluated, whether every item was,
+    // and which items `contains` matched.
+    var items: Int
+    var all_items: Bool
+    var hits: [Int]
+
+// What stays the same for a whole validation.
+struct Run
+    ix: SchIndex
+    formats: SchFormats
+    // Whether to build units and annotations, or only the answer.
+    collect: Bool
+
+// Where the evaluator is: the resource and the pointer within it, the
+// path taken through the schema, the place in the instance, and the
+// resources entered on the way, outermost first.  `rooted` says the
+// base is already the resource the current schema's own `$id` names,
+// which is so after a reference to a resource.
+struct At
+    base: Str
+    rptr: Str
+    kloc: Str
+    iloc: Str
+    scope: [Str]
+    rooted: Bool
+
+// An evaluation that holds and has evaluated nothing.
+fn holds() -> Eval
+    Eval { valid: true,
+        errors: [],
+        annotations: [],
+        props: [],
+        items: 0,
+        all_items: false,
+        hits: [] }
+
+// A pointer token escaped (RFC 6901).
+fn token(key: Str) -> Str
+    str.replace(str.replace(key, "~", "~0"), "/", "~1")
+
+// `at` moved into keyword `kw` of the schema.
+fn into(at: At, kw: Str) -> At
+    At { base: at.base, rptr: at.rptr + "/" + token(kw), kloc: at.kloc + "/" + token(kw), iloc: at.iloc,
+         scope: at.scope, rooted: false }
+
+// `at` moved into keyword `kw`, subschema `sub`.
+fn into_sub(at: At, kw: Str, sub: Str) -> At
+    into(into(at, kw), sub)
+
+// `at` moved to member `key` of the instance.
+fn member(at: At, key: Str) -> At
+    At { base: at.base, rptr: at.rptr, kloc: at.kloc, iloc: at.iloc + "/" + token(key), scope: at.scope,
+         rooted: at.rooted }
+
+// A failure of keyword `kw` at `at`, with `message`.
+fn fail(var e: Eval, r: Run, at: At, kw: Str, message: Str)
+    e.valid = false
+    if r.collect
+        let here = into(at, kw)
+        var absolute = ""
+        if here.base != ""
+            absolute = here.base + "#" + here.rptr
+        list.push(e.errors, SchUnit { instance_location: at.iloc, keyword_location: here.kloc,
+                                      absolute_keyword_location: absolute, keyword: kw, message: message })
+
+// An annotation of keyword `kw` at `at`.
+//
+// The value is copied into a document of its own.  A value `json.get`
+// answers points into the schema document and does not keep it alive,
+// so an output holding one would read freed memory once the schema was
+// dropped.
+fn note(var e: Eval, r: Run, at: At, kw: Str, value: JsonValueH)
+    if r.collect
+        let owned = json.parse(json.stringify(value)) ?? json.null()
+        list.push(e.annotations, SchAnnotation { instance_location: at.iloc, keyword_location: into(at, kw).kloc,
+                                                 keyword: kw, value: owned })
+
+// Take a subschema's evaluation into `e`.  Its failures always come
+// along; its annotations only when it held.  When it applied to the
+// same instance location, what it evaluated counts as evaluated here.
+fn absorb(var e: Eval, child: Eval, same_place: Bool)
+    if not child.valid
+        e.valid = false
+    list.append(e.errors, child.errors)
+    if child.valid
+        list.append(e.annotations, child.annotations)
+        if same_place
+            for p in child.props
+                if not list.contains(e.props, p)
+                    list.push(e.props, p)
+            if child.items > e.items
+                e.items = child.items
+            e.all_items = e.all_items or child.all_items
+            list.append(e.hits, child.hits)
+
+// A JSON value as text for a message.
+fn show(v: JsonValueH) -> Str
+    json.stringify(v)
+
+// A string as a JSON string, quoted, for a message.
+fn quoted(s: Str) -> Str
+    json.stringify(json.string(s))
+
+// Whether a number has no fractional part.
+fn integral(v: JsonValueH) -> Bool
+    let f = json.to_float(v) ?? 0.5
+    math.floor(f) == f
+
+// Whether an instance is of a JSON Schema type.  An integer is a number
+// with no fractional part, so 1.0 is one.
+fn has_type(inst: JsonValueH, name: Str) -> Bool
+    let t = json.type_of(inst)
+    t == name or name == "integer" and t == "number" and integral(inst)
+
+// Whether `x` is a multiple of `m`.  Integers are compared exactly; for
+// others the quotient must be within a relative 1e-9 of a whole number,
+// so 0.0075 is a multiple of 0.0001 where the division is not exact.
+fn multiple(x: Float, m: Float) -> Bool
+    let q = x / m
+    if q != q or math.abs(q) > 1.0e308
+        return false
+    let whole = math.floor(q + 0.5)
+    math.abs(q - whole) <= 1.0e-9 * math.max(1.0, math.abs(q))
+
+// The message for a `false` subschema, by the keyword that reached it.
+fn refusal(kw: Str, at: At) -> Str
+    if kw == "additionalProperties" or kw == "unevaluatedProperties" or kw == "properties" or kw == "patternProperties"
+        return "the property at ${at.iloc} is not allowed"
+    if kw == "items" or kw == "prefixItems" or kw == "unevaluatedItems"
+        return "the item at ${at.iloc} is not allowed"
+    "no value is allowed here"
+
+// Evaluate one subschema.  `kw` is the keyword that reached it, for the
+// message of a `false` schema.
+fn eval(r: Run, node: JsonValueH, at: At, inst: JsonValueH, kw: Str) -> Eval
+    var e = holds()
+    if json.type_of(node) == "boolean"
+        if json.to_bool(node) != Some(true)
+            e.valid = false
+            if r.collect
+                var absolute = ""
+                if at.base != ""
+                    absolute = at.base + "#" + at.rptr
+                list.push(e.errors, SchUnit { instance_location: at.iloc, keyword_location: at.kloc,
+                                              absolute_keyword_location: absolute, keyword: kw,
+                                              message: refusal(kw, at) })
+        return e
+    object(r, node, at, inst)
+
+// The resource an `$id` enters, if the schema has one and the base is
+// not already that resource.
+fn entered(at: At, node: JsonValueH) -> At
+    if at.rooted
+        return at
+    match json.get_str(node, "\$id")
+        None     => at
+        Some(id) =>
+            let uri = schcompile.without_fragment(schcompile.resolve(at.base, id))
+            var scope = list.clone(at.scope)
+            list.push(scope, uri)
+            At { base: uri, rptr: "", kloc: at.kloc, iloc: at.iloc, scope: scope, rooted: false }
+
+// Follow a reference to its target, entering the target's resource.
+fn follow(r: Run, t: SchTarget, at: At, kw: Str, inst: JsonValueH) -> Eval
+    var scope = list.clone(at.scope)
+    if list.len(scope) == 0 or scope[list.len(scope) - 1] != t.base
+        list.push(scope, t.base)
+    let there = At { base: t.base, rptr: t.rptr, kloc: at.kloc + "/" + token(kw), iloc: at.iloc, scope: scope,
+                     rooted: t.rptr == "" }
+    eval(r, t.node, there, inst, kw)
+
+// The target of a `$dynamicRef` whose static target is `t`: `t`,
+// unless it carries a `$dynamicAnchor` of the fragment's name, in which
+// case the outermost resource in the dynamic scope with such an anchor
+// wins (2020-12 section 8.2.3.2).
+fn dynamic_target(r: Run, at: At, ref: Str, t: SchTarget) -> SchTarget
+    let sep = str.index(ref, "#") ?? str.len(ref)
+    let name = str.slice(ref, sep + 1, str.len(ref))
+    if json.get_str(t.node, "\$dynamicAnchor") != Some(name) or name == ""
+        return t
+    for uri in at.scope
+        if schcompile.is_dynamic_anchor(r.ix, uri, name)
+            return schcompile.target_of(r.ix, uri, "#" + name) ?? t
+    t
+
+// Evaluate a schema object: every keyword, in the order the module
+// header gives.
+fn object(r: Run, node: JsonValueH, at0: At, inst: JsonValueH) -> Eval
+    let at = entered(at0, node)
+    var e = holds()
+    if let Some(ref) = json.get_str(node, "\$ref")
+        if let Some(t) = schcompile.target_of(r.ix, at.base, ref)
+            absorb(e, follow(r, t, at, "\$ref", inst), true)
+    if let Some(ref) = json.get_str(node, "\$dynamicRef")
+        if let Some(t) = schcompile.target_of(r.ix, at.base, ref)
+            absorb(e, follow(r, dynamic_target(r, at, ref, t), at, "\$dynamicRef", inst), true)
+    if not e.valid and not r.collect
+        return e
+    assertions(e, r, node, at, inst)
+    if not e.valid and not r.collect
+        return e
+    in_place(e, r, node, at, inst)
+    if not e.valid and not r.collect
+        return e
+    let kind = json.type_of(inst)
+    if kind == "array"
+        array_members(e, r, node, at, inst)
+    if kind == "object"
+        object_members(e, r, node, at, inst)
+    if r.collect
+        annotations(e, r, node, at)
+    e
+
+// The keywords about the instance itself.
+fn assertions(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    if let Some(t) = json.get(node, "type")
+        var names: [Str] = []
+        if json.type_of(t) == "string"
+            list.push(names, json.to_str(t) ?? "")
+        else
+            for i in 0..(json.len(t) ?? 0)
+                list.push(names, json.to_str(json.index(t, i) ?? json.null()) ?? "")
+        if not list.any(names, n => has_type(inst, n))
+            fail(e, r, at, "type", "expected ${list.join(names, " or ")}, found ${json.type_of(inst)}")
+    if let Some(options) = json.get(node, "enum")
+        var found = false
+        for i in 0..(json.len(options) ?? 0)
+            if json.equals(inst, json.index(options, i) ?? json.null())
+                found = true
+        if not found
+            fail(e, r, at, "enum", "${show(inst)} is not one of ${show(options)}")
+    if let Some(c) = json.get(node, "const")
+        if not json.equals(inst, c)
+            fail(e, r, at, "const", "${show(inst)} is not ${show(c)}")
+    let kind = json.type_of(inst)
+    match kind
+        "number" => numbers(e, r, node, at, inst)
+        "string" => strings(e, r, node, at, inst)
+        "array"  => counts(e, r, node, at, "maxItems", "minItems", json.len(inst) ?? 0, "items")
+        "object" => objects(e, r, node, at, inst)
+        _        => ()
+    format(e, r, node, at, inst)
+
+// A keyword's value as a number, or `None`.
+fn num(node: JsonValueH, kw: Str) -> ?Float
+    match json.get(node, kw)
+        Some(v) => json.to_float(v)
+        None    => None
+
+// `multipleOf` and the four bounds.
+fn numbers(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    let x = json.to_float(inst) ?? 0.0
+    let shown = show(inst)
+    if let Some(m) = num(node, "multipleOf")
+        if not multiple(x, m)
+            fail(e,
+                r,
+                at,
+                "multipleOf",
+                "${shown} is not a multiple of ${show(json.get(node, "multipleOf") ?? json.null())}")
+    if let Some(m) = num(node, "maximum")
+        if x > m
+            fail(e,
+                r,
+                at,
+                "maximum",
+                "${shown} is greater than the maximum of ${show(json.get(node, "maximum") ?? json.null())}")
+    if let Some(m) = num(node, "exclusiveMaximum")
+        if x >= m
+            fail(e, r, at, "exclusiveMaximum",
+                 "${shown} is not less than the exclusive maximum of ${show(json.get(node, "exclusiveMaximum") ?? json.null())}")
+    if let Some(m) = num(node, "minimum")
+        if x < m
+            fail(e,
+                r,
+                at,
+                "minimum",
+                "${shown} is less than the minimum of ${show(json.get(node, "minimum") ?? json.null())}")
+    if let Some(m) = num(node, "exclusiveMinimum")
+        if x <= m
+            fail(e, r, at, "exclusiveMinimum",
+                 "${shown} is not greater than the exclusive minimum of ${show(json.get(node, "exclusiveMinimum") ?? json.null())}")
+
+// A pair of count keywords, such as `maxItems` and `minItems`, against
+// a count of `what`.
+fn counts(var e: Eval, r: Run, node: JsonValueH, at: At, max_kw: Str, min_kw: Str, n: Int,
+          what: Str)
+    if let Some(m) = num(node, max_kw)
+        if (n as Float) > m
+            fail(e,
+                r,
+                at,
+                max_kw,
+                "expected at most ${show(json.get(node, max_kw) ?? json.null())} ${what}, found ${n}")
+    if let Some(m) = num(node, min_kw)
+        if (n as Float) < m
+            fail(e,
+                r,
+                at,
+                min_kw,
+                "expected at least ${show(json.get(node, min_kw) ?? json.null())} ${what}, found ${n}")
+
+// `maxLength`, `minLength` and `pattern`.  A length counts characters,
+// not bytes.
+fn strings(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    counts(e, r, node, at, "maxLength", "minLength", json.len(inst) ?? 0, "characters")
+    if let Some(p) = json.get_str(node, "pattern")
+        if not regex.is_match(p, json.to_str(inst) ?? "")
+            fail(e, r, at, "pattern", "${show(inst)} does not match ${quoted(p)}")
+
+// `format`: an annotation always, and a failure when the registry knows
+// the format and the string is not in it.
+fn format(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    if let Some(name) = json.get_str(node, "format")
+        if let Some(text) = json.to_str(inst)
+            if schformat.check_format(r.formats, name, text) == Some(false)
+                fail(e, r, at, "format", "${show(inst)} is not a valid ${name}")
+
+// The object keywords about the object itself: the property counts,
+// `required` and `dependentRequired`.
+fn objects(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    let keys = json.keys(inst)
+    counts(e, r, node, at, "maxProperties", "minProperties", list.len(keys), "properties")
+    if let Some(req) = json.get(node, "required")
+        for i in 0..(json.len(req) ?? 0)
+            let name = json.to_str(json.index(req, i) ?? json.null()) ?? ""
+            if not list.contains(keys, name)
+                fail(e, r, at, "required", "required property ${quoted(name)} is missing")
+    if let Some(deps) = json.get(node, "dependentRequired")
+        for p in json.keys(deps)
+            if list.contains(keys, p)
+                let needed = json.get(deps, p) ?? json.null()
+                for i in 0..(json.len(needed) ?? 0)
+                    let name = json.to_str(json.index(needed, i) ?? json.null()) ?? ""
+                    if not list.contains(keys, name)
+                        fail(e,
+                            r,
+                            at,
+                            "dependentRequired",
+                            "property ${quoted(p)} requires property ${quoted(name)}")
+
+// The applicators that apply to this same instance location.
+fn in_place(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    if let Some(all) = json.get(node, "allOf")
+        for i in 0..(json.len(all) ?? 0)
+            absorb(e,
+                eval(r, json.index(all, i) ?? json.null(), into_sub(at, "allOf", "${i}"), inst, "allOf"),
+                true)
+    if let Some(any) = json.get(node, "anyOf")
+        alternatives(e, r, any, at, inst, "anyOf")
+    if let Some(one) = json.get(node, "oneOf")
+        alternatives(e, r, one, at, inst, "oneOf")
+    if let Some(n) = json.get(node, "not")
+        let fast = Run { ix: r.ix, formats: r.formats, collect: false }
+        if eval(fast, n, into(at, "not"), inst, "not").valid
+            fail(e, r, at, "not", "${show(inst)} matches the schema it must not match")
+    if let Some(cond) = json.get(node, "if")
+        let tried = eval(r, cond, into(at, "if"), inst, "if")
+        if tried.valid
+            absorb(e, tried, true)
+            if let Some(t) = json.get(node, "then")
+                absorb(e, eval(r, t, into(at, "then"), inst, "then"), true)
+        else if let Some(f) = json.get(node, "else")
+            absorb(e, eval(r, f, into(at, "else"), inst, "else"), true)
+    if json.type_of(inst) == "object"
+        if let Some(deps) = json.get(node, "dependentSchemas")
+            let keys = json.keys(inst)
+            for p in json.keys(deps)
+                if list.contains(keys, p)
+                    absorb(e, eval(r, json.get(deps, p) ?? json.null(), into_sub(at, "dependentSchemas", p), inst,
+                                   "dependentSchemas"),
+                                   true)
+
+// `anyOf` or `oneOf`: every alternative is evaluated, because each one
+// that holds contributes what it evaluated.  A failure adds its own unit
+// first, then the alternatives' units when none held.
+fn alternatives(var e: Eval, r: Run, options: JsonValueH, at: At, inst: JsonValueH, kw: Str)
+    var tried: [Eval] = []
+    var held = 0
+    for i in 0..(json.len(options) ?? 0)
+        let one = eval(r, json.index(options, i) ?? json.null(), into_sub(at, kw, "${i}"), inst, kw)
+        if one.valid
+            held = held + 1
+        list.push(tried, one)
+    if held == 0
+        fail(e, r, at, kw, "${show(inst)} matches none of the ${kw} schemas")
+        for one in tried
+            list.append(e.errors, one.errors)
+    else if kw == "oneOf" and held > 1
+        fail(e, r, at, kw, "${show(inst)} matches ${held} of the oneOf schemas, not exactly one")
+    else
+        for one in tried
+            if one.valid
+                absorb(e, one, true)
+
+// The array keywords that apply to its items, then `unevaluatedItems`.
+fn array_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    let n = json.len(inst) ?? 0
+    var first = 0
+    if let Some(prefix) = json.get(node, "prefixItems")
+        first = math.min(n, json.len(prefix) ?? 0)
+        for i in 0..first
+            absorb(e, eval(r, json.index(prefix, i) ?? json.null(), member(into_sub(at, "prefixItems", "${i}"), "${i}"),
+                           json.index(inst, i) ?? json.null(), "prefixItems"),
+                           false)
+        if first > e.items
+            e.items = first
+    if let Some(each) = json.get(node, "items")
+        for i in first..n
+            absorb(e, eval(r,
+                each,
+                member(into(at, "items"), "${i}"),
+                json.index(inst, i) ?? json.null(),
+                "items"),
+            false)
+        e.all_items = true
+    if json.get_bool(node, "uniqueItems") == Some(true)
+        unique(e, r, at, inst, n)
+    if let Some(c) = json.get(node, "contains")
+        contains(e, r, node, c, at, inst, n)
+    if let Some(u) = json.get(node, "unevaluatedItems")
+        var start = e.items
+        if e.all_items
+            start = n
+        for i in start..n
+            if not list.contains(e.hits, i)
+                absorb(e, eval(r, u, member(into(at, "unevaluatedItems"), "${i}"), json.index(inst, i) ?? json.null(),
+                               "unevaluatedItems"),
+                               false)
+        e.all_items = true
+
+// `uniqueItems`: no two items equal, as JSON values.
+fn unique(var e: Eval, r: Run, at: At, inst: JsonValueH, n: Int)
+    for i in 0..n
+        for j in i + 1..n
+            if json.equals(json.index(inst, i) ?? json.null(), json.index(inst, j) ?? json.null())
+                fail(e, r, at, "uniqueItems", "items ${i} and ${j} are equal")
+                return
+
+// `contains`, `minContains` and `maxContains`.  The items that match
+// count as evaluated.
+fn contains(var e: Eval, r: Run, node: JsonValueH, c: JsonValueH, at: At, inst: JsonValueH, n: Int)
+    var matched = 0
+    for i in 0..n
+        let one = eval(r, c, member(into(at, "contains"), "${i}"), json.index(inst, i) ?? json.null(), "contains")
+        if one.valid
+            matched = matched + 1
+            list.push(e.hits, i)
+            list.append(e.annotations, one.annotations)
+    let least = num(node, "minContains") ?? 1.0
+    if (matched as Float) < least
+        if json.get(node, "minContains") != None
+            fail(e,
+                r,
+                at,
+                "minContains",
+                "expected at least ${show(json.get(node, "minContains") ?? json.null())} items to match contains, found ${matched}")
+        else
+            fail(e, r, at, "contains", "no item matches the contains schema")
+    if let Some(most) = num(node, "maxContains")
+        if (matched as Float) > most
+            fail(e,
+                r,
+                at,
+                "maxContains",
+                "expected at most ${show(json.get(node, "maxContains") ?? json.null())} items to match contains, found ${matched}")
+
+// The object keywords that apply to its members, then
+// `unevaluatedProperties`.
+fn object_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
+    let keys = json.keys(inst)
+    let props = json.get(node, "properties")
+    let patterns = json.get(node, "patternProperties")
+    for key in keys
+        let value = json.get(inst, key) ?? json.null()
+        var matched = false
+        if let Some(ps) = props
+            if let Some(sub) = json.get(ps, key)
+                matched = true
+                absorb(e,
+                    eval(r, sub, member(into_sub(at, "properties", key), key), value, "properties"),
+                    false)
+        if let Some(pp) = patterns
+            for p in json.keys(pp)
+                if regex.is_match(p, key)
+                    matched = true
+                    absorb(e, eval(r, json.get(pp, p) ?? json.null(), member(into_sub(at, "patternProperties", p), key),
+                                   value, "patternProperties"),
+                                   false)
+        if not matched
+            if let Some(extra) = json.get(node, "additionalProperties")
+                matched = true
+                absorb(e, eval(r,
+                    extra,
+                    member(into(at, "additionalProperties"), key),
+                    value,
+                    "additionalProperties"),
+                       false)
+        if matched and not list.contains(e.props, key)
+            list.push(e.props, key)
+        if let Some(names) = json.get(node, "propertyNames")
+            absorb(e,
+                eval(r, names, member(into(at, "propertyNames"), key), json.string(key), "propertyNames"),
+                false)
+    if let Some(u) = json.get(node, "unevaluatedProperties")
+        for key in keys
+            if not list.contains(e.props, key)
+                absorb(e, eval(r, u, member(into(at, "unevaluatedProperties"), key), json.get(inst, key) ?? json.null(),
+                               "unevaluatedProperties"),
+                               false)
+                list.push(e.props, key)
+
+// The annotation keywords of a schema object that held: the meta-data,
+// content and format keywords and any keyword 2020-12 does not define.
+fn annotations(var e: Eval, r: Run, node: JsonValueH, at: At)
+    if not e.valid
+        return
+    for key in json.keys(node)
+        let known = schvocab.keyword_vocabulary(key)
+        if known == None or not schvocab.keyword_is_asserted(key)
+            note(e, r, at, key, json.get(node, key) ?? json.null())
+
+// Run a validation.
+fn run(s: SchSchema, instance: JsonValueH, formats: SchFormats, collect: Bool) -> Eval
+    let r = Run { ix: s.index, formats: formats, collect: collect }
+    var scope: [Str] = []
+    if s.id != ""
+        list.push(scope, s.id)
+    let at = At { base: s.id, rptr: "", kloc: "", iloc: "", scope: scope, rooted: true }
+    let root = s.index.docs[0]
+    eval(r, root, at, instance, "")
+
+// The formats `validate` asserts: the built-in ones when the schema was
+// compiled with `assert_formats`, and none otherwise.
+fn default_formats(s: SchSchema) -> SchFormats
+    if s.options.assert_formats
+        return schformat.builtin_formats()
+    schformat.formats()
 
 // Validate an instance.
 //
-// **The load-bearing call of this module**, and it answers an output
-// rather than a `Result` because an invalid instance is an answer.
+// `format` is asserted with the built-in formats when the schema was
+// compiled with `SchOptions.assert_formats`, and is an annotation
+// otherwise.
 //
 // ```novo
 // use std.json
@@ -114,10 +652,13 @@ pub struct SchOutput
 //                             let out = schvalidate.validate(s, i)
 //                             println("${list.len(out.errors)}")
 // ```
-pub fn validate(s: schcompile.SchSchema, instance: JsonValueH) -> SchOutput []
-    todo("schema-nv.schvalidate.validate")
+pub fn validate(s: SchSchema, instance: JsonValueH) -> SchOutput []
+    validate_with(s, instance, default_formats(s))
 
 // Validate with a format registry, so `format` can assert.
+//
+// Every format the registry knows is asserted, whatever the schema's
+// options say; a format it does not know stays an annotation.
 //
 // ```novo
 // use std.json
@@ -140,17 +681,14 @@ pub fn validate(s: schcompile.SchSchema, instance: JsonValueH) -> SchOutput []
 //                             let out = schvalidate.validate_with(s, i, schformat.builtin_formats())
 //                             println("${out.valid}")
 // ```
-pub fn validate_with(s: schcompile.SchSchema, instance: JsonValueH,
-                     formats: schformat.SchFormats) -> SchOutput []
-    todo("schema-nv.schvalidate.validate_with")
+pub fn validate_with(s: SchSchema, instance: JsonValueH, formats: SchFormats) -> SchOutput []
+    let e = run(s, instance, formats, true)
+    SchOutput { valid: e.valid, errors: e.errors, annotations: e.annotations }
 
 // Whether an instance matches, with no reasons collected.
 //
-// The fast path, and it is genuinely faster rather than a wrapper: it
-// stops at the first failure, it builds no locations, and it collects
-// no annotations for a schema that has no `unevaluated*` keyword.  What
-// a hot path calls — a queue consumer checking a million messages, a
-// router deciding whether a body is worth parsing further.
+// The fast path: it stops at the first failure and builds no units and
+// no annotations.  `format` is treated as `validate` treats it.
 //
 // ```novo
 // use std.json
@@ -170,14 +708,13 @@ pub fn validate_with(s: schcompile.SchSchema, instance: JsonValueH,
 //                         None    => println("not json")
 //                         Some(i) => println("${schvalidate.is_valid(s, i)}")
 // ```
-pub fn is_valid(s: schcompile.SchSchema, instance: JsonValueH) -> Bool []
-    todo("schema-nv.schvalidate.is_valid")
+pub fn is_valid(s: SchSchema, instance: JsonValueH) -> Bool []
+    run(s, instance, default_formats(s), false).valid
 
 // The first failure, or `None`.
 //
-// For a caller that has an output and wants one line out of it — a log
-// message, a test assertion.  The first is the outermost, because the
-// validator reaches a container before its members.
+// The first is the outermost, because the validator reaches a
+// container before its members.
 //
 // ```novo
 // use schvalidate
@@ -189,13 +726,13 @@ pub fn is_valid(s: schcompile.SchSchema, instance: JsonValueH) -> Bool []
 //         None    => println("it matched")
 // ```
 pub fn first_error(out: SchOutput) -> ?SchUnit []
-    todo("schema-nv.schvalidate.first_error")
+    if list.len(out.errors) == 0
+        return None
+    Some(out.errors[0])
 
 // Every failure at one place in the instance.
 //
-// What a form renderer asks: "what is wrong with the `email` field?"
-// is a question about an instance location, and an output is a flat
-// list because a schema can fail one location under several keywords.
+// What a form renderer asks of one field.
 //
 // ```novo
 // use std.list
@@ -207,12 +744,10 @@ pub fn first_error(out: SchOutput) -> ?SchUnit []
 //     println("${shown}")
 // ```
 pub fn errors_at(out: SchOutput, instance_location: Str) -> [SchUnit] []
-    todo("schema-nv.schvalidate.errors_at")
+    list.filter(out.errors, u => u.instance_location == instance_location)
 
-// Every instance location that failed, deduplicated, in document order.
-//
-// The other half of the form renderer's question: which fields to mark
-// at all.
+// Every instance location that failed, each once, in the order the
+// failures were reached.
 //
 // ```novo
 // use std.list
@@ -223,13 +758,17 @@ pub fn errors_at(out: SchOutput, instance_location: Str) -> [SchUnit] []
 //     println("${list.len(schvalidate.failed_locations(out))}")
 // ```
 pub fn failed_locations(out: SchOutput) -> [Str] []
-    todo("schema-nv.schvalidate.failed_locations")
+    var seen: [Str] = []
+    for u in out.errors
+        if not list.contains(seen, u.instance_location)
+            list.push(seen, u.instance_location)
+    seen
 
 // One failure as a line of text.
 //
-// `"/users/2/age: 17 is less than the minimum of 18"` — the instance
-// location, then the message.  Here so that a caller printing an output
-// does not write the same join in every program.
+// The instance location, then the message:
+// `/users/2/age: 17 is less than the minimum of 18`.  A failure of the
+// document as a whole is the message alone.
 //
 // ```novo
 // use schvalidate
@@ -241,13 +780,14 @@ pub fn failed_locations(out: SchOutput) -> [Str] []
 //     println(schvalidate.error_text(u))
 // ```
 pub fn error_text(u: SchUnit) -> Str []
-    todo("schema-nv.schvalidate.error_text")
+    if u.instance_location == ""
+        return u.message
+    "${u.instance_location}: ${u.message}"
 
-// The output as 2020-12 § 12.4's "Flag" format: `{"valid": false}`.
+// The output as 2020-12 section 12.4's Flag format: `{"valid": false}`.
 //
-// The two standard output formats are here because they are what makes
-// a validator's answer portable — a service that returns one can be
-// read by a client using a different implementation.
+// A service that answers in one of the standard formats can be read by
+// a client using another implementation.
 //
 // ```novo
 // use std.json
@@ -258,16 +798,13 @@ pub fn error_text(u: SchUnit) -> Str []
 //     println(json.stringify(schvalidate.flag_output(out)))
 // ```
 pub fn flag_output(out: SchOutput) -> JsonValueH []
-    todo("schema-nv.schvalidate.flag_output")
+    json.object([("valid", json.bool(out.valid))])
 
-// The output as 2020-12 § 12.4's "Basic" format: a flat list of output
-// units under `"errors"`.
-//
-// Basic rather than "Detailed" or "Verbose": the flat list is the one
-// a program consumes, the hierarchical ones are for a person reading
-// JSON by eye, and this package's `SchOutput` is already the flat list
-// with the units typed.  A caller that wants the hierarchy has
-// `keyword_location` on every unit and can build it.
+// The output as 2020-12 section 12.4's Basic format: `valid`, and a
+// flat list of output units under `errors` when it is false or under
+// `annotations` when it is true.  Each unit has `keywordLocation`,
+// `absoluteKeywordLocation` when there is one, `instanceLocation`, and
+// `error` or `annotation`.
 //
 // ```novo
 // use std.json
@@ -278,16 +815,28 @@ pub fn flag_output(out: SchOutput) -> JsonValueH []
 //     println(json.stringify(schvalidate.basic_output(out)))
 // ```
 pub fn basic_output(out: SchOutput) -> JsonValueH []
-    todo("schema-nv.schvalidate.basic_output")
+    var units: [JsonValueH] = []
+    if out.valid
+        for a in out.annotations
+            list.push(units, json.object([("keywordLocation", json.string(a.keyword_location)),
+                                          ("instanceLocation", json.string(a.instance_location)),
+                                          ("annotation", a.value)]))
+        return json.object([("valid", json.bool(true)), ("annotations", json.array(units))])
+    for u in out.errors
+        var fields = [("keywordLocation", json.string(u.keyword_location))]
+        if u.absolute_keyword_location != ""
+            list.push(fields, ("absoluteKeywordLocation", json.string(u.absolute_keyword_location)))
+        list.push(fields, ("instanceLocation", json.string(u.instance_location)))
+        list.push(fields, ("error", json.string(u.message)))
+        list.push(units, json.object(fields))
+    json.object([("valid", json.bool(false)), ("errors", json.array(units))])
 
 // The annotations produced at one instance location, by keyword.
 //
-// What a form generator reads out of a schema: the `title` for a label,
-// the `description` for help text, the `default` for an initial value.
-// They come from a VALIDATION rather than from the schema directly
-// because an `if`/`then` schema's annotations depend on the instance,
-// and reading them off the schema would answer the ones from branches
-// that did not apply.
+// What a form generator reads: the `title` for a label, the
+// `description` for help text, the `default` for an initial value.
+// They come from a validation rather than from the schema, because an
+// `if`/`then` schema's annotations depend on the instance.
 //
 // ```novo
 // use std.list
@@ -299,12 +848,12 @@ pub fn basic_output(out: SchOutput) -> JsonValueH []
 //     println("${shown}")
 // ```
 pub fn annotations_at(out: SchOutput, instance_location: Str) -> [SchAnnotation] []
-    todo("schema-nv.schvalidate.annotations_at")
+    list.filter(out.annotations, a => a.instance_location == instance_location)
 
 // The value of one annotation keyword at one location, or `None`.
 //
-// The common case of `annotations_at` — "what is the title of this
-// field" — without the list walk.
+// The first one the validation produced, when several subschemas give
+// the same keyword at one location.
 //
 // ```novo
 // use std.json
@@ -317,4 +866,7 @@ pub fn annotations_at(out: SchOutput, instance_location: Str) -> [SchAnnotation]
 //         None    => println("no title there")
 // ```
 pub fn annotation(out: SchOutput, instance_location: Str, keyword: Str) -> ?JsonValueH []
-    todo("schema-nv.schvalidate.annotation")
+    for a in out.annotations
+        if a.instance_location == instance_location and a.keyword == keyword
+            return Some(a.value)
+    None

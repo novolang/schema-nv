@@ -1,95 +1,109 @@
-// schcompile.nv — a schema document turned into something that can
-// validate, and the registry of documents its `$ref`s reach.
+// schcompile.nv — a schema document turned into something that
+// validates, and the registry of documents its references reach.
 //
-// Every body here is a `todo()`; the signatures are the design.
+// A `$ref` names a URI, and resolving one to another document means
+// reading that document, which this package does not do.  The core says
+// what it needs and the host fetches it:
 //
-// **THE LOAD-BEARING INTERFACE OF THE PACKAGE IS `external_refs`.**
-// JSON Schema's `$ref` names a URI, and resolving one means READING a
-// document — which is exactly what a `core` package may not do.  So the
-// core says what it needs and the host fetches it:
-//
-//   let wanted = schcompile.external_refs(doc)     // core: "these URIs"
-//   ... the host reads each one, however it likes ...
+//   let wanted = schcompile.external_refs(doc)       // the URIs needed
+//   // the host reads each one, however it likes
 //   let reg = schcompile.with_document(reg, uri, fetched)
 //   let schema = schcompile.compile_with(doc, reg)
 //
-// That is `docs/publishing.md` § How a `core` package takes bytes from
-// its host, in its third shape — the core asks, the host performs — and
-// it is the same shape tera-nv's template set has for `{% extends %}`.
-// It is also what makes this package SAFE by construction: a schema
-// from outside cannot make a program fetch a URL, because the program
-// decides what it fetches and this package has no `[net]` to do it
-// with.
+// A schema from outside therefore cannot make a program fetch a URL:
+// the program decides what it fetches, and this package has no `[net]`.
 //
-// COMPILE ONCE, VALIDATE MANY.  Everything expensive and everything
-// fallible happens here: the `$ref` graph is resolved, every `pattern`
-// is checked, every keyword's value is checked for shape.  A
-// `SchSchema` is then a value a caller keeps and hands to
-// `schvalidate.validate` a million times, and that function cannot
-// fail.  The agent tier is why: a tool whose arguments are described by
-// a schema validates one per call and should not re-read the schema
-// each time.
+// Everything fallible happens in the compile: the reference graph is
+// resolved, every `pattern` is compiled, every keyword's value is
+// checked for shape, and a cycle that would never finish validating is
+// refused.  A `SchSchema` is then a value a caller keeps and hands to
+// `schvalidate.validate` as often as it likes.
 //
-// `$dynamicRef` IS IMPLEMENTED AND IS SCOPED.  It resolves against the
-// dynamic scope — the chain of schema resources entered on the way to
-// the reference — which is what makes a recursive schema extensible.
-// What it does NOT do is cross a `$ref` into a document the registry
-// does not hold, for the same reason `$ref` does not.
-// `uses_dynamic_ref` says whether a compiled schema has any, because a
-// caller that knows it has none can reason about its schemas much more
-// simply.
+// URIs are resolved by RFC 3986 section 5.2.  A document is known by
+// the URI it was registered under and by the `$id` of every schema
+// resource inside it; an `$anchor` or `$dynamicAnchor` names a place
+// within a resource.  A fragment that starts with `/` is a JSON Pointer
+// (RFC 6901), percent-decoded first.
 
 use std.json
 use scherror
+use schvocab
 
 // A compiled schema: a value a caller keeps.
-//
-// Deliberately thin in public: the four fields are the questions a
-// caller actually asks about a schema it did not write, and the tree
-// underneath them is not something anything outside should match on.
 pub struct SchSchema
-    // The schema's own `$id`, or `""` when it declared none.
+    // The schema's own `$id`, resolved, or `""` when it declared none.
     id: Str
     // How many asserting keywords the schema uses, across every
-    // subschema.  What a caller bounding an untrusted schema reads —
-    // a schema is cheap to write and `allOf` of a thousand is not.
+    // subschema of the document, which a caller bounding an untrusted
+    // schema reads.
     keyword_count: Int
     // Whether any subschema uses `unevaluatedItems` or
-    // `unevaluatedProperties`.  A schema without them validates with a
-    // cheaper walk, because nothing has to carry the annotation set.
+    // `unevaluatedProperties`.
     uses_unevaluated: Bool
     // Whether any subschema uses `$dynamicRef`.
     uses_dynamic_ref: Bool
+    // The documents and the places in them that references reach, for
+    // `schvalidate`.
+    index: SchIndex
+    // The options the schema was compiled with.
+    options: SchOptions
+
+// The documents a compiled schema reaches, and where each resource and
+// anchor is in them.  `schvalidate` reads it; a caller has no need to.
+pub struct SchIndex
+    // The documents: the schema itself first, then the registry's.
+    docs: [JsonValueH]
+    // The absolute URI of each schema resource, the document it is in,
+    // and the JSON Pointer to it there.
+    res_uris: [Str]
+    res_docs: [Int]
+    res_ptrs: [Str]
+    // Each anchor as `resource-uri#name`, its document, its pointer in
+    // the document, its pointer within its resource, and whether it is
+    // a `$dynamicAnchor`.
+    anc_keys: [Str]
+    anc_docs: [Int]
+    anc_ptrs: [Str]
+    anc_rptrs: [Str]
+    anc_dynamic: [Bool]
 
 // The documents a compile may resolve a `$ref` into.
 //
-// A value, built up by the caller, so that two schemas in one program
-// can see different sets — which is what a program validating both its
-// own configuration and somebody else's payloads wants.
+// A value built up by the caller, so two schemas in one program can see
+// different sets.
 pub struct SchRegistry
-    // How many documents it holds.  Public so a caller can assert on
-    // it; the documents themselves are reached by `document_uris`.
+    // How many documents it holds.
     count: Int
+    // The URI each was registered under, and the document.
+    uris: [Str]
+    documents: [JsonValueH]
 
-// What a compile will not do.
+// What a compile will and will not do.
 pub struct SchOptions
     // How deeply subschemas may nest.
     var max_depth: Int
     // Refuse a keyword 2020-12 does not define, instead of collecting
-    // it as an annotation.  FALSE by default, because the
-    // specification's rule is that an unknown keyword is an annotation
-    // — but a caller validating its OWN schemas usually wants the typo
-    // caught, and `"requred": ["a"]` silently passing everything is the
-    // most common JSON Schema bug there is.
+    // it as an annotation.  False by default, which is the
+    // specification's rule; a caller validating its own schemas usually
+    // wants a typo such as `"requred"` caught.
     var refuse_unknown_keywords: Bool
-    // Treat `format` as an assertion even where the schema does not
-    // declare the format-assertion vocabulary.  FALSE by default,
-    // which is 2020-12 § 7.  A format nobody registered stays an
-    // annotation either way.
+    // Assert the built-in formats in `schvalidate.validate`.  False by
+    // default, which is 2020-12 section 7.
     var assert_formats: Bool
     // The dialect to assume for a schema with no `$schema`.
-    // `schvocab.DIALECT_2020_12` by default.
+    // `schvocab.DIALECT_2020_12` by default, and the only one this
+    // package implements.
     var default_dialect: Str
+
+// A place a `$ref` leads: the schema there, the document it is in and
+// its pointer there, and the resource it is in and its pointer within
+// that resource.
+pub struct SchTarget
+    node: JsonValueH
+    doc: Int
+    ptr: Str
+    base: Str
+    rptr: Str
 
 // The defaults: 128 deep, unknown keywords collected, `format` an
 // annotation, 2020-12 assumed.
@@ -101,7 +115,8 @@ pub struct SchOptions
 //     println("${schcompile.default_options().max_depth}")
 // ```
 pub fn default_options() -> SchOptions []
-    todo("schema-nv.schcompile.default_options")
+    SchOptions { max_depth: 128, refuse_unknown_keywords: false, assert_formats: false,
+                 default_dialect: schvocab.DIALECT_2020_12 }
 
 // An empty registry.
 //
@@ -112,16 +127,15 @@ pub fn default_options() -> SchOptions []
 //     println("${schcompile.registry().count}")
 // ```
 pub fn registry() -> SchRegistry []
-    todo("schema-nv.schcompile.registry")
+    SchRegistry { count: 0, uris: [], documents: [] }
 
 // A registry with one more document in it, under the URI a `$ref` will
 // name.
 //
 // The URI is the caller's to choose and is not checked against the
 // document's own `$id`: a schema served from one place and mirrored at
-// another is one document with two names, and refusing the second would
-// make a mirror unusable.  A document registered twice under one URI
-// replaces the first.
+// another is one document with two names.  A document registered twice
+// under one URI replaces the first.  A fragment on the URI is ignored.
 //
 // ```novo
 // use std.json
@@ -136,7 +150,17 @@ pub fn registry() -> SchRegistry []
 //             println("${reg.count}")
 // ```
 pub fn with_document(r: SchRegistry, uri: Str, document: JsonValueH) -> SchRegistry []
-    todo("schema-nv.schcompile.with_document")
+    let key = without_fragment(uri)
+    var uris: [Str] = []
+    var docs: [JsonValueH] = []
+    for i in 0..r.count
+        if r.uris[i] != key
+            list.push(uris, r.uris[i])
+            let kept = r.documents[i]
+            list.push(docs, kept)
+    list.push(uris, key)
+    list.push(docs, document)
+    SchRegistry { count: list.len(uris), uris: uris, documents: docs }
 
 // The URIs a registry holds, in the order they were added.
 //
@@ -148,20 +172,675 @@ pub fn with_document(r: SchRegistry, uri: Str, document: JsonValueH) -> SchRegis
 //     println("${list.len(schcompile.document_uris(schcompile.registry()))}")
 // ```
 pub fn document_uris(r: SchRegistry) -> [Str] []
-    todo("schema-nv.schcompile.document_uris")
+    list.clone(r.uris)
+
+// ── URIs ─────────────────────────────────────────────────────────────
+
+// A URI reference's five parts (RFC 3986 section 3), each with whether
+// it was present.
+struct Uri
+    scheme: Str
+    has_authority: Bool
+    authority: Str
+    path: Str
+    has_query: Bool
+    query: Str
+    has_fragment: Bool
+    fragment: Str
+
+// Split a URI reference into its parts (RFC 3986 appendix B).
+fn parse_uri(s: Str) -> Uri
+    var rest = s
+    var fragment = ""
+    var has_fragment = false
+    if let Some(i) = str.index(rest, "#")
+        fragment = str.slice(rest, i + 1, str.len(rest))
+        has_fragment = true
+        rest = str.slice(rest, 0, i)
+    var query = ""
+    var has_query = false
+    if let Some(i) = str.index(rest, "?")
+        query = str.slice(rest, i + 1, str.len(rest))
+        has_query = true
+        rest = str.slice(rest, 0, i)
+    var scheme = ""
+    let colon = str.index(rest, ":") ?? 0 - 1
+    if colon > 0 and scheme_ok(str.slice(rest, 0, colon))
+        scheme = str.slice(rest, 0, colon)
+        rest = str.slice(rest, colon + 1, str.len(rest))
+    var authority = ""
+    var has_authority = false
+    if str.starts_with(rest, "//")
+        has_authority = true
+        let after = str.slice(rest, 2, str.len(rest))
+        let slash = str.index(after, "/") ?? str.len(after)
+        authority = str.slice(after, 0, slash)
+        rest = str.slice(after, slash, str.len(after))
+    Uri { scheme: scheme, has_authority: has_authority, authority: authority, path: rest, has_query: has_query,
+          query: query, has_fragment: has_fragment, fragment: fragment }
+
+// Whether text before a `:` is a URI scheme: a letter, then letters,
+// digits, `+`, `-` and `.`, which a path segment before a colon is not
+// when it holds `/`.
+fn scheme_ok(s: Str) -> Bool
+    for i in 0..str.len(s)
+        let b = str.byte_at_or(s, i, 0)
+        let letter = b >= 'a' and b <= 'z' or b >= 'A' and b <= 'Z'
+        if not letter and (i == 0 or not (b >= '0' and b <= '9' or b == '+' or b == '-' or b == '.'))
+            return false
+    true
+
+// A URI put back together (RFC 3986 section 5.3).
+fn unparse(u: Uri) -> Str
+    var out = ""
+    if u.scheme != ""
+        out = u.scheme + ":"
+    if u.has_authority
+        out = out + "//" + u.authority
+    out = out + u.path
+    if u.has_query
+        out = out + "?" + u.query
+    if u.has_fragment
+        out = out + "#" + u.fragment
+    out
+
+// A path with its `.` and `..` segments removed (RFC 3986 section
+// 5.2.4).
+fn remove_dots(path: Str) -> Str
+    let absolute = str.starts_with(path, "/")
+    var out: [Str] = []
+    let parts = str.split(path, "/")
+    let n = list.len(parts)
+    for i in 0..n
+        let seg = parts[i]
+        if seg == ".."
+            if list.len(out) > 0
+                out = out[0:list.len(out) - 1]
+            if i == n - 1
+                list.push(out, "")
+        else if seg == "."
+            if i == n - 1
+                list.push(out, "")
+        else if seg != "" or i > 0 and i == n - 1
+            list.push(out, seg)
+    let joined = list.join(out, "/")
+    if absolute
+        return "/" + joined
+    joined
+
+// A reference resolved against a base URI (RFC 3986 section 5.2.2).
+fn resolve(base: Str, ref: Str) -> Str
+    let b = parse_uri(base)
+    let r = parse_uri(ref)
+    if r.scheme != ""
+        return unparse(Uri { scheme: r.scheme, has_authority: r.has_authority, authority: r.authority,
+                             path: remove_dots(r.path), has_query: r.has_query, query: r.query,
+                             has_fragment: r.has_fragment, fragment: r.fragment })
+    if r.has_authority
+        return unparse(Uri { scheme: b.scheme, has_authority: true, authority: r.authority,
+                             path: remove_dots(r.path), has_query: r.has_query, query: r.query,
+                             has_fragment: r.has_fragment, fragment: r.fragment })
+    var merged = b.path
+    var has_query = b.has_query
+    var query = b.query
+    if r.path != ""
+        has_query = r.has_query
+        query = r.query
+        if str.starts_with(r.path, "/")
+            merged = remove_dots(r.path)
+        else
+            merged = remove_dots(merge(b, r.path))
+    else if r.has_query
+        has_query = true
+        query = r.query
+    unparse(Uri { scheme: b.scheme, has_authority: b.has_authority, authority: b.authority, path: merged,
+                  has_query: has_query, query: query, has_fragment: r.has_fragment, fragment: r.fragment })
+
+// A relative path merged with a base's (RFC 3986 section 5.2.3).
+fn merge(b: Uri, path: Str) -> Str
+    if b.has_authority and b.path == ""
+        return "/" + path
+    match str.index(str.reverse(b.path), "/")
+        Some(k) => str.slice(b.path, 0, str.len(b.path) - k) + path
+        None    => path
+
+// A URI without its fragment.
+fn without_fragment(uri: Str) -> Str
+    match str.index(uri, "#")
+        Some(i) => str.slice(uri, 0, i)
+        None    => uri
+
+// A fragment with its percent escapes decoded.
+fn percent_decode(s: Str) -> Str
+    var out = ""
+    var run = 0
+    let n = str.len(s)
+    for i in 0..n
+        if i >= run and str.byte_at_or(s, i, 0) == '%'
+            let h = hex_value(str.byte_at_or(s, i + 1, 0)) * 16 + hex_value(str.byte_at_or(s, i + 2, 0))
+            if h >= 0 and i + 2 < n
+                out = out + str.slice(s, run, i) + str.from_byte(h)
+                run = i + 3
+    out + str.slice(s, run, n)
+
+// The value of a hexadecimal digit, or a negative number.
+fn hex_value(b: Int) -> Int
+    if b >= '0' and b <= '9'
+        return b - '0'
+    if b >= 'a' and b <= 'f'
+        return b - 'a' + 10
+    if b >= 'A' and b <= 'F'
+        return b - 'A' + 10
+    0 - 1000
+
+// Whether a string may be a URI reference: no space, no control
+// character, and none of `"<>\^`{|}`.
+fn uri_chars_ok(s: Str) -> Bool
+    for i in 0..str.len(s)
+        let b = str.byte_at_or(s, i, 0)
+        if b <= 32 or b == 127 or b == '"' or b == '<' or b == '>' or b == '\\' or b == '^' or b == '`'
+            return false
+        if b == '{' or b == '|' or b == '}'
+            return false
+    true
+
+// ── JSON Pointers ────────────────────────────────────────────────────
+
+// A pointer token escaped: `~` as `~0` and `/` as `~1` (RFC 6901).
+fn escape_token(key: Str) -> Str
+    str.replace(str.replace(key, "~", "~0"), "/", "~1")
+
+// A pointer one step deeper.
+fn child_ptr(ptr: Str, key: Str) -> Str
+    ptr + "/" + escape_token(key)
+
+// The value a JSON Pointer names inside `v`, or `None`.
+fn node_at(v: JsonValueH, ptr: Str) -> ?JsonValueH
+    if ptr == ""
+        return Some(v)
+    var here = v
+    let parts = str.split(ptr, "/")
+    for k in 1..list.len(parts)
+        let token = str.replace(str.replace(parts[k], "~1", "/"), "~0", "~")
+        var next: ?JsonValueH = None
+        if json.type_of(here) == "array"
+            if let Some(i) = str.to_int(token)
+                next = json.index(here, i)
+        else if json.type_of(here) == "object"
+            next = json.get(here, token)
+        match next
+            Some(n) =>
+                here = n
+            None    =>
+                return None
+    Some(here)
+
+// ── Walking a document ───────────────────────────────────────────────
+
+// The keywords whose value is one subschema.
+fn single_schema_keywords() -> [Str]
+    ["items", "contains", "additionalProperties", "propertyNames", "not", "if", "then", "else", "unevaluatedItems",
+     "unevaluatedProperties", "contentSchema"]
+
+// The keywords whose value is an object of subschemas.
+fn map_schema_keywords() -> [Str]
+    ["\$defs", "properties", "patternProperties", "dependentSchemas"]
+
+// The keywords whose value is a non-empty array of subschemas.
+fn list_schema_keywords() -> [Str]
+    ["prefixItems", "allOf", "anyOf", "oneOf"]
+
+// The keywords whose value is a non-negative integer.
+fn count_keywords() -> [Str]
+    ["maxLength", "minLength", "maxItems", "minItems", "maxContains", "minContains", "maxProperties",
+     "minProperties"]
+
+// The keywords whose value is a number.
+fn bound_keywords() -> [Str]
+    ["maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum"]
+
+// The subschemas that apply to the same instance location as the schema
+// holding them, which is where a cycle would not end.
+fn in_place_keywords() -> [Str]
+    ["not", "if", "then", "else"]
+
+// What a walk over the documents gathers.
+struct Walk
+    var docs: [JsonValueH]
+    var res_uris: [Str]
+    var res_docs: [Int]
+    var res_ptrs: [Str]
+    var anc_keys: [Str]
+    var anc_docs: [Int]
+    var anc_ptrs: [Str]
+    var anc_rptrs: [Str]
+    var anc_dynamic: [Bool]
+    // The faults found, with the document each is in.
+    var faults: [SchFault]
+    var fault_docs: [Int]
+    // Each `$ref` and `$dynamicRef`: its document, the pointer of the
+    // schema holding it, the keyword, the base it resolves against, and
+    // its value.
+    var ref_docs: [Int]
+    var ref_ptrs: [Str]
+    var ref_keys: [Str]
+    var ref_bases: [Str]
+    var ref_values: [Str]
+    // Each edge between two schemas that apply to one instance
+    // location, as `doc#pointer` keys.
+    var edge_from: [Str]
+    var edge_to: [Str]
+    // Every `$id`, resolved, in document order.
+    var ids: [Str]
+    var keyword_count: Int
+    var uses_unevaluated: Bool
+    var uses_dynamic_ref: Bool
+    var options: SchOptions
+
+// A walk with nothing in it yet.
+fn new_walk(options: SchOptions) -> Walk
+    Walk { docs: [], res_uris: [], res_docs: [], res_ptrs: [], anc_keys: [], anc_docs: [], anc_ptrs: [],
+           anc_rptrs: [], anc_dynamic: [], faults: [], fault_docs: [], ref_docs: [], ref_ptrs: [], ref_keys: [],
+           ref_bases: [], ref_values: [], edge_from: [], edge_to: [], ids: [], keyword_count: 0,
+           uses_unevaluated: false, uses_dynamic_ref: false, options: options }
+
+// The key a schema is known by in the cycle graph.
+fn node_key(doc: Int, ptr: Str) -> Str
+    "${doc}#${ptr}"
+
+// Record a fault found at `ptr` in document `doc`.
+fn fail(var w: Walk, kind: SchFaultKind, doc: Int, ptr: Str, base: Str, rptr: Str, found: Str)
+    var absolute = ""
+    if base != ""
+        absolute = base + "#" + rptr
+    list.push(w.faults, scherror.fault(kind, ptr, absolute, found))
+    list.push(w.fault_docs, doc)
+
+// Whether a JSON value is a number with no fractional part.
+fn is_integral(v: JsonValueH) -> Bool
+    if json.type_of(v) != "number"
+        return false
+    let f = json.to_float(v) ?? 0.5
+    math.floor(f) == f
+
+// Whether an anchor name is a plain name: a letter or `_`, then
+// letters, digits, `-`, `_` and `.` (2020-12 section 8.2.2).
+fn anchor_ok(name: Str) -> Bool
+    let n = str.len(name)
+    if n == 0
+        return false
+    for i in 0..n
+        let b = str.byte_at_or(name, i, 0)
+        let letter = b >= 'a' and b <= 'z' or b >= 'A' and b <= 'Z' or b == '_'
+        if not letter and (i == 0 or not (b >= '0' and b <= '9' or b == '-' or b == '.'))
+            return false
+    true
+
+// Whether every element of a JSON array is a string.
+fn all_strings(v: JsonValueH) -> Bool
+    if json.type_of(v) != "array"
+        return false
+    for i in 0..(json.len(v) ?? 0)
+        if json.type_of(json.index(v, i) ?? json.null()) != "string"
+            return false
+    true
+
+// Whether a keyword is one 2020-12 defines.
+fn known_keyword(k: Str) -> Bool
+    schvocab.keyword_vocabulary(k) != None
+
+// Register a resource, refusing a second resource under one URI.
+fn add_resource(var w: Walk, uri: Str, doc: Int, ptr: Str, found: Str)
+    for i in 0..list.len(w.res_uris)
+        if w.res_uris[i] == uri
+            if w.res_docs[i] != doc or w.res_ptrs[i] != ptr
+                fail(w, SchBadId, doc, ptr, "", "", found)
+            return
+    list.push(w.res_uris, uri)
+    list.push(w.res_docs, doc)
+    list.push(w.res_ptrs, ptr)
+
+// Register an anchor, refusing a second one of the same name in one
+// resource.
+fn add_anchor(var w: Walk, key: Str, doc: Int, ptr: Str, rptr: Str, dynamic: Bool, found: Str)
+    for i in 0..list.len(w.anc_keys)
+        if w.anc_keys[i] == key and (w.anc_docs[i] != doc or w.anc_ptrs[i] != ptr)
+            fail(w, SchBadAnchor, doc, ptr, "", "", found)
+            return
+    list.push(w.anc_keys, key)
+    list.push(w.anc_docs, doc)
+    list.push(w.anc_ptrs, ptr)
+    list.push(w.anc_rptrs, rptr)
+    list.push(w.anc_dynamic, dynamic)
+
+// Walk one schema: index its resources and anchors, record its
+// references and in-place edges, and check its keywords' shapes.
+fn walk(var w: Walk, node: JsonValueH, doc: Int, ptr: Str, base_in: Str, rptr_in: Str, depth: Int)
+    let kind = json.type_of(node)
+    if kind == "boolean"
+        return
+    if kind != "object"
+        fail(w, SchNotASchema, doc, ptr, base_in, rptr_in, json.stringify(node))
+        return
+    if depth > w.options.max_depth
+        fail(w, SchDepthLimit, doc, ptr, base_in, rptr_in, "${depth}")
+        return
+    var base = base_in
+    var rptr = rptr_in
+    if let Some(id) = json.get(node, "\$id")
+        match json.to_str(id)
+            None    =>
+                fail(w, SchBadKeywordValue, doc, child_ptr(ptr, "\$id"), base, rptr, json.stringify(id))
+            Some(t) =>
+                let resolved = resolve(base, t)
+                if str.contains(resolved, "#") and not str.ends_with(resolved, "#")
+                    fail(w, SchBadId, doc, child_ptr(ptr, "\$id"), base, rptr, json.stringify(id))
+                else
+                    base = without_fragment(resolved)
+                    rptr = ""
+                    list.push(w.ids, base)
+                    add_resource(w, base, doc, ptr, json.stringify(id))
+    for key in json.keys(node)
+        check_keyword(w, node, key, doc, ptr, base, rptr, depth)
+
+// Check one keyword of a schema object, and walk the subschemas it
+// holds.
+fn check_keyword(var w: Walk, node: JsonValueH, key: Str, doc: Int, ptr: Str, base: Str, rptr: Str,
+                 depth: Int)
+    let v = json.get(node, key) ?? json.null()
+    let at = child_ptr(ptr, key)
+    let at_r = child_ptr(rptr, key)
+    let kind = json.type_of(v)
+    let text = json.stringify(v)
+    if schvocab.keyword_is_asserted(key)
+        w.keyword_count = w.keyword_count + 1
+    if key == "unevaluatedItems" or key == "unevaluatedProperties"
+        w.uses_unevaluated = true
+    if list.contains(single_schema_keywords(), key)
+        walk(w, v, doc, at, base, at_r, depth + 1)
+        if list.contains(in_place_keywords(), key)
+            list.push(w.edge_from, node_key(doc, ptr))
+            list.push(w.edge_to, node_key(doc, at))
+    else if list.contains(map_schema_keywords(), key)
+        if kind != "object"
+            fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+            return
+        for name in json.keys(v)
+            if key == "patternProperties"
+                if let Some(reason) = regex.error(name)
+                    fail(w,
+                        SchBadPattern,
+                        doc,
+                        child_ptr(at, name),
+                        base,
+                        child_ptr(at_r, name),
+                        reason)
+            walk(w,
+                json.get(v, name) ?? json.null(),
+                doc,
+                child_ptr(at, name),
+                base,
+                child_ptr(at_r, name),
+                depth + 1)
+            if key == "dependentSchemas"
+                list.push(w.edge_from, node_key(doc, ptr))
+                list.push(w.edge_to, node_key(doc, child_ptr(at, name)))
+    else if list.contains(list_schema_keywords(), key)
+        if kind != "array" or json.len(v) == Some(0)
+            fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+            return
+        for i in 0..(json.len(v) ?? 0)
+            let item_ptr = child_ptr(at, "${i}")
+            walk(w,
+                json.index(v, i) ?? json.null(),
+                doc,
+                item_ptr,
+                base,
+                child_ptr(at_r, "${i}"),
+                depth + 1)
+            if key != "prefixItems"
+                list.push(w.edge_from, node_key(doc, ptr))
+                list.push(w.edge_to, node_key(doc, item_ptr))
+    else
+        check_value(w, key, v, doc, ptr, base, rptr)
+
+// Check the value of a keyword that holds no subschema.
+fn check_value(var w: Walk, key: Str, v: JsonValueH, doc: Int, ptr: Str, base: Str, rptr: Str)
+    let at = child_ptr(ptr, key)
+    let at_r = child_ptr(rptr, key)
+    let kind = json.type_of(v)
+    let text = json.stringify(v)
+    if key == "\$ref" or key == "\$dynamicRef"
+        if key == "\$dynamicRef"
+            w.uses_dynamic_ref = true
+        match json.to_str(v)
+            None    =>
+                fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+            Some(r) =>
+                if not uri_chars_ok(r)
+                    fail(w, SchBadRef, doc, at, base, at_r, text)
+                else
+                    list.push(w.ref_docs, doc)
+                    list.push(w.ref_ptrs, ptr)
+                    list.push(w.ref_keys, key)
+                    list.push(w.ref_bases, base)
+                    list.push(w.ref_values, r)
+    else if key == "\$anchor" or key == "\$dynamicAnchor"
+        match json.to_str(v)
+            None       =>
+                fail(w, SchBadAnchor, doc, at, base, at_r, text)
+            Some(name) =>
+                if not anchor_ok(name)
+                    fail(w, SchBadAnchor, doc, at, base, at_r, text)
+                else
+                    add_anchor(w, base + "#" + name, doc, ptr, rptr, key == "\$dynamicAnchor", text)
+    else if key == "\$schema"
+        let dialect = json.to_str(v) ?? ""
+        if dialect != schvocab.DIALECT_2020_12 and dialect != schvocab.DIALECT_2020_12 + "#"
+            fail(w, SchUnknownDialect, doc, at, base, at_r, text)
+    else if key == "\$vocabulary"
+        if kind != "object"
+            fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+            return
+        for uri in json.keys(v)
+            let required = json.get(v, uri) ?? json.null()
+            if json.type_of(required) != "boolean"
+                fail(w,
+                    SchBadKeywordValue,
+                    doc,
+                    child_ptr(at, uri),
+                    base,
+                    child_ptr(at_r, uri),
+                    json.stringify(required))
+            else if json.to_bool(required) == Some(true) and schvocab.vocabulary_named(uri) == None
+                fail(w,
+                    SchUnsupportedVocabulary,
+                    doc,
+                    child_ptr(at, uri),
+                    base,
+                    child_ptr(at_r, uri),
+                    json.stringify(json.string(uri)))
+    else if key == "type"
+        check_type(w, v, doc, at, base, at_r)
+    else if key == "enum" and kind != "array" or key == "required" and not all_strings(v)
+        fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+    else if key == "multipleOf" and (kind != "number" or (json.to_float(v) ?? 0.0) <= 0.0)
+        fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+    else if list.contains(bound_keywords(), key) and kind != "number"
+        fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+    else if list.contains(count_keywords(), key) and (not is_integral(v) or (json.to_float(v) ?? 0.0) < 0.0)
+        fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+    else if key == "uniqueItems" and kind != "boolean"
+        fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+    else if key == "pattern" or key == "format" or key == "\$comment"
+        match json.to_str(v)
+            None    =>
+                fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+            Some(p) =>
+                if key == "pattern"
+                    if let Some(reason) = regex.error(p)
+                        fail(w, SchBadPattern, doc, at, base, at_r, reason)
+    else if key == "dependentRequired"
+        if kind != "object" or list.any(json.keys(v), k => not all_strings(json.get(v, k) ?? json.null()))
+            fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
+    else if not known_keyword(key) and w.options.refuse_unknown_keywords
+        fail(w, SchUnknownKeyword, doc, at, base, at_r, json.stringify(json.string(key)))
+
+// Check `type`: one of the seven names, or a non-empty array of them.
+fn check_type(var w: Walk, v: JsonValueH, doc: Int, at: Str, base: Str, at_r: Str)
+    var names: [Str] = []
+    if json.type_of(v) == "string"
+        list.push(names, json.to_str(v) ?? "")
+    else if all_strings(v) and json.len(v) != Some(0)
+        for i in 0..(json.len(v) ?? 0)
+            list.push(names, json.to_str(json.index(v, i) ?? json.null()) ?? "")
+    else
+        fail(w, SchBadKeywordValue, doc, at, base, at_r, json.stringify(v))
+        return
+    for name in names
+        if not list.contains(schvocab.type_names(), name)
+            fail(w, SchUnknownType, doc, at, base, at_r, json.stringify(json.string(name)))
+
+// Walk a whole document: its root is a resource under the URI it was
+// registered with.
+fn walk_document(var w: Walk, document: JsonValueH, uri: Str)
+    let doc = list.len(w.docs)
+    list.push(w.docs, document)
+    add_resource(w, uri, doc, "", json.stringify(json.string(uri)))
+    walk(w, document, doc, "", uri, "", 0)
+
+// ── Resolving ────────────────────────────────────────────────────────
+
+// Where a reference leads, from the schema resource `base`, or `None`
+// when nothing is there.
+fn target_of(ix: SchIndex, base: Str, ref: Str) -> ?SchTarget
+    let target = resolve(base, ref)
+    let uri = without_fragment(target)
+    var fragment = ""
+    if let Some(i) = str.index(target, "#")
+        fragment = percent_decode(str.slice(target, i + 1, str.len(target)))
+    var doc = 0 - 1
+    var place = ""
+    var rptr = fragment
+    if fragment != "" and not str.starts_with(fragment, "/")
+        for i in 0..list.len(ix.anc_keys)
+            if ix.anc_keys[i] == uri + "#" + fragment
+                doc = ix.anc_docs[i]
+                place = ix.anc_ptrs[i]
+                rptr = ix.anc_rptrs[i]
+    else
+        for i in 0..list.len(ix.res_uris)
+            if ix.res_uris[i] == uri
+                doc = ix.res_docs[i]
+                place = ix.res_ptrs[i] + fragment
+    if doc < 0
+        return None
+    let document = ix.docs[doc]
+    match node_at(document, place)
+        Some(n) => Some(SchTarget { node: n, doc: doc, ptr: place, base: uri, rptr: rptr })
+        None    => None
+
+// Whether an anchor `name` in resource `uri` is a `$dynamicAnchor`.
+fn is_dynamic_anchor(ix: SchIndex, uri: Str, name: Str) -> Bool
+    for i in 0..list.len(ix.anc_keys)
+        if ix.anc_keys[i] == uri + "#" + name
+            return ix.anc_dynamic[i]
+    false
+
+// The index a walk built.
+fn index_of(w: Walk) -> SchIndex
+    SchIndex { docs: w.docs, res_uris: w.res_uris, res_docs: w.res_docs, res_ptrs: w.res_ptrs, anc_keys: w.anc_keys,
+               anc_docs: w.anc_docs, anc_ptrs: w.anc_ptrs, anc_rptrs: w.anc_rptrs, anc_dynamic: w.anc_dynamic }
+
+// Walk a schema and every registered document.
+fn walk_all(document: JsonValueH, r: SchRegistry, options: SchOptions) -> Walk
+    var w = new_walk(options)
+    walk_document(w, document, "")
+    for i in 0..r.count
+        let document = r.documents[i]
+        walk_document(w, document, r.uris[i])
+    w
+
+// Resolve every reference in the schema, then in each document a
+// reference leads into, until nothing new is reached.  Answers the
+// reached documents; unresolved references become faults.
+fn resolve_refs(var w: Walk) -> [Int]
+    let ix = index_of(w)
+    var reached: [Int] = [0]
+    var pending: [Int] = [0]
+    while list.len(pending) > 0
+        let doc = pending[0]
+        pending = pending[1:list.len(pending)]
+        for i in 0..list.len(w.ref_docs)
+            if w.ref_docs[i] == doc
+                match target_of(ix, w.ref_bases[i], w.ref_values[i])
+                    None    =>
+                        fail(w, SchUnresolvedRef, doc, child_ptr(w.ref_ptrs[i], w.ref_keys[i]), "", "",
+                             json.stringify(json.string(w.ref_values[i])))
+                    Some(t) =>
+                        list.push(w.edge_from, node_key(doc, w.ref_ptrs[i]))
+                        list.push(w.edge_to, node_key(t.doc, t.ptr))
+                        if not list.contains(reached, t.doc)
+                            list.push(reached, t.doc)
+                            list.push(pending, t.doc)
+    reached
+
+// A schema on a cycle of references and in-place applicators reachable
+// from the root, as its `doc#pointer` key, or `None`.
+fn cycle(w: Walk) -> ?Str
+    var state: [Str] = []
+    var marks: [Int] = []
+    visit(w, node_key(0, ""), state, marks)
+
+// Depth-first search for a back edge.  `state` and `marks` record each
+// key seen: 1 while on the current path, 2 once finished.
+fn visit(w: Walk, key: Str, var state: [Str], var marks: [Int]) -> ?Str
+    list.push(state, key)
+    list.push(marks, 1)
+    let me = list.len(state) - 1
+    for i in 0..list.len(w.edge_from)
+        if w.edge_from[i] == key
+            let to = w.edge_to[i]
+            var seen = 0 - 1
+            for j in 0..list.len(state)
+                if state[j] == to
+                    seen = j
+            if seen >= 0 and marks[seen] == 1
+                return Some(to)
+            if seen < 0
+                if let Some(found) = visit(w, to, state, marks)
+                    return Some(found)
+    marks[me] = 2
+    None
+
+// The faults of a compile, in the order found, with the documents
+// nothing reaches left out.
+fn compile_faults(document: JsonValueH, r: SchRegistry, options: SchOptions) -> ([SchFault], Walk)
+    var w = walk_all(document, r, options)
+    let reached = resolve_refs(w)
+    if json.get(document, "\$schema") == None and options.default_dialect != schvocab.DIALECT_2020_12
+        fail(w, SchUnknownDialect, 0, "", "", "", json.stringify(json.string(options.default_dialect)))
+    if list.len(w.faults) == 0
+        if let Some(key) = cycle(w)
+            let sep = str.index(key, "#") ?? 0
+            fail(w, SchRefCycle, str.to_int(str.slice(key, 0, sep)) ?? 0, str.slice(key, sep + 1, str.len(key)), "", "",
+                 "")
+    var out: [SchFault] = []
+    for i in 0..list.len(w.faults)
+        if list.contains(reached, w.fault_docs[i])
+            list.push(out, w.faults[i])
+    (out, w)
 
 // Every external URI a schema document's `$ref`s and `$dynamicRef`s
-// name, absolute and deduplicated.
+// name, absolute, without fragments, deduplicated, in document order.
 //
-// **The call that makes this package sans-IO.**  It reads the document
-// and answers the list of things it will need; the host fetches them,
-// however it fetches things, and registers each one.  A reference
-// inside the document itself — `#/$defs/thing` — is not in the list,
-// because nothing has to be fetched for it.
-//
-// It does not compile and it cannot fail: a `$ref` whose value is not a
-// string is skipped here and reported by `compile`, so a caller can run
-// this over a document it has not yet decided to trust.
+// The call that keeps this package from fetching anything: it answers
+// what the schema needs, and the host fetches each URI however it
+// fetches things and registers it.  A reference into the document
+// itself, such as `#/$defs/thing`, or to a resource the document
+// declares with `$id`, is not in the list.  It does not compile and
+// cannot fail: a `$ref` whose value is not a string is skipped here and
+// reported by `compile`.
 //
 // ```novo
 // use std.json
@@ -174,13 +853,26 @@ pub fn document_uris(r: SchRegistry) -> [Str] []
 //         Some(doc) => println("${list.len(schcompile.external_refs(doc))}")
 // ```
 pub fn external_refs(document: JsonValueH) -> [Str] []
-    todo("schema-nv.schcompile.external_refs")
+    let w = walk_all(document, registry(), default_options())
+    wanted(w, [0])
 
-// The subset of `external_refs` a registry does not yet hold.
+// The documents a walk's references in `docs` need that no resource
+// of the walk provides.
+fn wanted(w: Walk, docs: [Int]) -> [Str]
+    var out: [Str] = []
+    for i in 0..list.len(w.ref_docs)
+        if list.contains(docs, w.ref_docs[i])
+            let uri = without_fragment(resolve(w.ref_bases[i], w.ref_values[i]))
+            if not list.contains(w.res_uris, uri) and not list.contains(out, uri)
+                list.push(out, uri)
+    out
+
+// The external URIs the schema and the registry's documents need that
+// the registry does not yet hold.
 //
-// What a host loop calls to know whether it is finished: a fetched
-// document may itself have `$ref`s, so the loop is "ask, fetch,
-// register, ask again" until this answers empty.
+// What a host's fetch loop stops on: a fetched document may have
+// references of its own, so the loop asks, fetches, registers and asks
+// again until this answers an empty list.
 //
 // ```novo
 // use std.json
@@ -196,13 +888,16 @@ pub fn external_refs(document: JsonValueH) -> [Str] []
 //             println("${list.len(missing)}")
 // ```
 pub fn missing_refs(document: JsonValueH, r: SchRegistry) -> [Str] []
-    todo("schema-nv.schcompile.missing_refs")
+    let w = walk_all(document, r, default_options())
+    var docs: [Int] = []
+    for i in 0..r.count + 1
+        list.push(docs, i)
+    wanted(w, docs)
 
 // Compile a schema that refers only to itself.
 //
-// The common case, and the one that needs no registry: a schema with no
-// `$ref` at all, or one whose `$ref`s are all `#/...` into its own
-// `$defs`.  An external `$ref` is `SchUnresolvedRef`.
+// A schema with no `$ref`, or whose `$ref`s are all into its own
+// `$defs` and resources.  An external `$ref` is `SchUnresolvedRef`.
 //
 // ```novo
 // use std.json
@@ -217,8 +912,8 @@ pub fn missing_refs(document: JsonValueH, r: SchRegistry) -> [Str] []
 //                 Ok(s)  => println("${s.keyword_count}")
 //                 Err(f) => println(f.schema_location)
 // ```
-pub fn compile(document: JsonValueH) -> Result<SchSchema, scherror.SchFault> []
-    todo("schema-nv.schcompile.compile")
+pub fn compile(document: JsonValueH) -> Result<SchSchema, SchFault> []
+    compile_with(document, registry())
 
 // Compile a schema whose `$ref`s reach the registry.
 //
@@ -235,10 +930,12 @@ pub fn compile(document: JsonValueH) -> Result<SchSchema, scherror.SchFault> []
 //                 Ok(_)  => println("compiled")
 //                 Err(f) => println(f.schema_location)
 // ```
-pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, scherror.SchFault> []
-    todo("schema-nv.schcompile.compile_with")
+pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, SchFault> []
+    compile_with_options(document, r, default_options())
 
 // Compile with options of the caller's choosing.
+//
+// The first fault found is the answer; `faults` answers all of them.
 //
 // ```novo
 // use std.json
@@ -256,16 +953,21 @@ pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, s
 //                 Err(f) => println(f.found)
 // ```
 pub fn compile_with_options(document: JsonValueH, r: SchRegistry,
-                            options: SchOptions) -> Result<SchSchema, scherror.SchFault> []
-    todo("schema-nv.schcompile.compile_with_options")
+                            options: SchOptions) -> Result<SchSchema, SchFault> []
+    let (found, w) = compile_faults(document, r, options)
+    if list.len(found) > 0
+        return Err(found[0])
+    var id = ""
+    if list.len(w.ids) > 0 and json.get(document, "\$id") != None
+        id = w.ids[0]
+    Ok(SchSchema { id: id, keyword_count: w.keyword_count, uses_unevaluated: w.uses_unevaluated,
+                   uses_dynamic_ref: w.uses_dynamic_ref, index: index_of(w), options: options })
 
 // Every fault in a schema, rather than only the first.
 //
-// `compile` stops at the first, because a schema that does not compile
-// cannot validate anything and the first reason is the one to fix.
-// This is for a TOOL — a linter over a directory of schemas, an editor
-// showing squiggles — which wants them all in one pass and is not going
-// to run the schema either way.
+// For a tool, such as a linter over a directory of schemas or an
+// editor, that wants them all in one pass.  A cycle is looked for only
+// in a schema with no other fault.
 //
 // ```novo
 // use std.json
@@ -280,15 +982,16 @@ pub fn compile_with_options(document: JsonValueH, r: SchRegistry,
 //             let all = schcompile.faults(doc, schcompile.registry())
 //             println("${list.len(all)}")
 // ```
-pub fn faults(document: JsonValueH, r: SchRegistry) -> [scherror.SchFault] []
-    todo("schema-nv.schcompile.faults")
+pub fn faults(document: JsonValueH, r: SchRegistry) -> [SchFault] []
+    let (found, _) = compile_faults(document, r, default_options())
+    found
 
-// The `$id` of every schema resource inside a document, in document
-// order.
+// The `$id` of every schema resource inside a document, resolved, in
+// document order.
 //
-// A document may declare several — an `$id` in a `$defs` entry starts a
-// new resource — and a caller registering a bundle needs to know which
-// names it just made reachable.
+// A document may declare several, since an `$id` in a `$defs` entry
+// starts a new resource, and a caller registering a bundle needs to know
+// which names it made reachable.
 //
 // ```novo
 // use std.json
@@ -301,16 +1004,14 @@ pub fn faults(document: JsonValueH, r: SchRegistry) -> [scherror.SchFault] []
 //         Some(doc) => println("${list.len(schcompile.resource_ids(doc))}")
 // ```
 pub fn resource_ids(document: JsonValueH) -> [Str] []
-    todo("schema-nv.schcompile.resource_ids")
+    let w = walk_all(document, registry(), default_options())
+    list.clone(w.ids)
 
-// The vocabularies a document's `$vocabulary` declares as required and
-// this package does not assert.
+// The vocabularies a document's `$vocabulary` requires and this package
+// does not recognise.
 //
-// Empty for a schema this package can honour.  Public and separate from
-// `compile` so that a caller can DECIDE — a schema requiring the
-// content vocabulary is one this package will refuse, and a program
-// with a thousand schemas would rather sort them than discover it one
-// at a time.
+// Empty for a schema this package can honour.  Separate from `compile`
+// so that a caller with many schemas can sort them before compiling any.
 //
 // ```novo
 // use std.json
@@ -326,4 +1027,9 @@ pub fn resource_ids(document: JsonValueH) -> [Str] []
 //             println("${list.len(unmet)}")
 // ```
 pub fn unsupported_vocabularies(document: JsonValueH) -> [Str] []
-    todo("schema-nv.schcompile.unsupported_vocabularies")
+    let w = walk_all(document, registry(), default_options())
+    var out: [Str] = []
+    for f in w.faults
+        if f.kind == SchUnsupportedVocabulary
+            list.push(out, json.to_str(json.parse(f.found) ?? json.null()) ?? f.found)
+    out
