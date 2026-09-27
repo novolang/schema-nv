@@ -156,8 +156,7 @@ pub fn with_document(r: SchRegistry, uri: Str, document: JsonValueH) -> SchRegis
     for i in 0..r.count
         if r.uris[i] != key
             list.push(uris, r.uris[i])
-            let kept = r.documents[i]
-            list.push(docs, kept)
+            list.push(docs, r.documents[i])
     list.push(uris, key)
     list.push(docs, document)
     SchRegistry { count: list.len(uris), uris: uris, documents: docs }
@@ -416,7 +415,7 @@ struct Walk
     var anc_rptrs: [Str]
     var anc_dynamic: [Bool]
     // The faults found, with the document each is in.
-    var faults: [SchFault]
+    var faults: [scherror.SchFault]
     var fault_docs: [Int]
     // Each `$ref` and `$dynamicRef`: its document, the pointer of the
     // schema holding it, the keyword, the base it resolves against, and
@@ -449,7 +448,8 @@ fn node_key(doc: Int, ptr: Str) -> Str
     "${doc}#${ptr}"
 
 // Record a fault found at `ptr` in document `doc`.
-fn fail(var w: Walk, kind: SchFaultKind, doc: Int, ptr: Str, base: Str, rptr: Str, found: Str)
+fn fail(var w: Walk, kind: scherror.SchFaultKind, doc: Int, ptr: Str, base: Str, rptr: Str,
+        found: Str)
     var absolute = ""
     if base != ""
         absolute = base + "#" + rptr
@@ -735,8 +735,7 @@ fn target_of(ix: SchIndex, base: Str, ref: Str) -> ?SchTarget
                 place = ix.res_ptrs[i] + fragment
     if doc < 0
         return None
-    let document = ix.docs[doc]
-    match node_at(document, place)
+    match node_at(ix.docs[doc], place)
         Some(n) => Some(SchTarget { node: n, doc: doc, ptr: place, base: uri, rptr: rptr })
         None    => None
 
@@ -757,8 +756,7 @@ fn walk_all(document: JsonValueH, r: SchRegistry, options: SchOptions) -> Walk
     var w = new_walk(options)
     walk_document(w, document, "")
     for i in 0..r.count
-        let document = r.documents[i]
-        walk_document(w, document, r.uris[i])
+        walk_document(w, r.documents[i], r.uris[i])
     w
 
 // Resolve every reference in the schema, then in each document a
@@ -815,7 +813,8 @@ fn visit(w: Walk, key: Str, var state: [Str], var marks: [Int]) -> ?Str
 
 // The faults of a compile, in the order found, with the documents
 // nothing reaches left out.
-fn compile_faults(document: JsonValueH, r: SchRegistry, options: SchOptions) -> ([SchFault], Walk)
+fn compile_faults(document: JsonValueH, r: SchRegistry,
+                  options: SchOptions) -> ([scherror.SchFault], Walk)
     var w = walk_all(document, r, options)
     let reached = resolve_refs(w)
     if json.get(document, "\$schema") == None and options.default_dialect != schvocab.DIALECT_2020_12
@@ -825,7 +824,7 @@ fn compile_faults(document: JsonValueH, r: SchRegistry, options: SchOptions) -> 
             let sep = str.index(key, "#") ?? 0
             fail(w, SchRefCycle, str.to_int(str.slice(key, 0, sep)) ?? 0, str.slice(key, sep + 1, str.len(key)), "", "",
                  "")
-    var out: [SchFault] = []
+    var out: [scherror.SchFault] = []
     for i in 0..list.len(w.faults)
         if list.contains(reached, w.fault_docs[i])
             list.push(out, w.faults[i])
@@ -912,7 +911,7 @@ pub fn missing_refs(document: JsonValueH, r: SchRegistry) -> [Str] []
 //                 Ok(s)  => println("${s.keyword_count}")
 //                 Err(f) => println(f.schema_location)
 // ```
-pub fn compile(document: JsonValueH) -> Result<SchSchema, SchFault> []
+pub fn compile(document: JsonValueH) -> Result<SchSchema, scherror.SchFault> []
     compile_with(document, registry())
 
 // Compile a schema whose `$ref`s reach the registry.
@@ -930,7 +929,7 @@ pub fn compile(document: JsonValueH) -> Result<SchSchema, SchFault> []
 //                 Ok(_)  => println("compiled")
 //                 Err(f) => println(f.schema_location)
 // ```
-pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, SchFault> []
+pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, scherror.SchFault> []
     compile_with_options(document, r, default_options())
 
 // Compile with options of the caller's choosing.
@@ -953,7 +952,7 @@ pub fn compile_with(document: JsonValueH, r: SchRegistry) -> Result<SchSchema, S
 //                 Err(f) => println(f.found)
 // ```
 pub fn compile_with_options(document: JsonValueH, r: SchRegistry,
-                            options: SchOptions) -> Result<SchSchema, SchFault> []
+                            options: SchOptions) -> Result<SchSchema, scherror.SchFault> []
     let (found, w) = compile_faults(document, r, options)
     if list.len(found) > 0
         return Err(found[0])
@@ -982,7 +981,7 @@ pub fn compile_with_options(document: JsonValueH, r: SchRegistry,
 //             let all = schcompile.faults(doc, schcompile.registry())
 //             println("${list.len(all)}")
 // ```
-pub fn faults(document: JsonValueH, r: SchRegistry) -> [SchFault] []
+pub fn faults(document: JsonValueH, r: SchRegistry) -> [scherror.SchFault] []
     let (found, _) = compile_faults(document, r, default_options())
     found
 
