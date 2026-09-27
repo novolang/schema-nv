@@ -49,6 +49,14 @@ These break code written against 0.0.x.
   `with_document` ignores a fragment on the URI it is given.
 - `SchFault.found` is the JSON text of what was there.
 
+### Toolchain
+
+- The toolchain floor is 0.13.0. An annotation holds the schema's own
+  value, which stays readable after the compiled schema is dropped from
+  that release on. A format check is
+  called where it is read from the registry, as `checks[i](text)`,
+  because a name for it adds nothing.
+
 ## 0.0.3 — 2026-09-25
 
 Every field of `SchOptions` is now declared `var`.  Under novo 0.10.0 a
