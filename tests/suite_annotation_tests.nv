@@ -1,0 +1,534 @@
+// suite_annotation_tests.nv — the JSON-Schema-Test-Suite's draft2020-12 files
+// for content, default, format, unevaluatedItems, unevaluatedProperties.
+//
+// Written by tools/suite.py; do not edit by hand.  Each test is one
+// file of the suite; each group compiles once against the suite's
+// remote documents, and each instance must get the suite's answer,
+// which Python's jsonschema was checked to give as well.
+
+use std.test
+use std.json
+use schcompile
+use schvalidate
+
+// The documents the suite serves at http://localhost:1234/, and the
+// 2020-12 meta-schemas, as one registry.
+fn remotes() -> SchRegistry
+    var r = schcompile.registry()
+    for (uri, text) in documents()
+        if let Some(d) = json.parse(text)
+            r = schcompile.with_document(r, uri, d)
+    r
+
+fn documents() -> [(Str, Str)]
+    [
+        ("http://localhost:1234/baseUriChange/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolder/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-ref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/draft2020-12/extendible-dynamic-ref.json",
+        "{\"description\":\"extendible array\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-false.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-false.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-true.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-true.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/metaschema-no-validation.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-no-validation.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/applicator\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"http://localhost:1234/draft/2020-12/vocab/custom\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/validation\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/draft2020-12/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/draft2020-12/the-nested-id.json\"}"),
+        ("http://localhost:1234/draft2020-12/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/draft2020-12/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/prefixItems.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/prefixItems.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}]}"),
+        ("http://localhost:1234/draft2020-12/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/draft2020-12/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/tree.json",
+        "{\"description\":\"tree schema, extensible\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/draft2020-12/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-2020-1200deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/integer.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/nested/foo-ref-string.json",
+        "{\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/nested/string.json", "{\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-ref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/v1/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/v1/extendible-dynamic-ref.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"extendible array\",\"\$id\":\"http://localhost:1234/v1/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/v1/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/v1/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/v1/the-nested-id.json\"}"),
+        ("http://localhost:1234/v1/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/v1/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$id\":\"http://localhost:1234/v1/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/v1/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/v1/tree.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"tree schema, extensible\",\"\$id\":\"http://localhost:1234/v1/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/v1/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-ff01-0000deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("https://json-schema.org/draft/2020-12/schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true,\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true,\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true,\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core and Validation specifications meta-schema\",\"allOf\":[{\"\$ref\":\"meta/core\"},{\"\$ref\":\"meta/applicator\"},{\"\$ref\":\"meta/unevaluated\"},{\"\$ref\":\"meta/validation\"},{\"\$ref\":\"meta/meta-data\"},{\"\$ref\":\"meta/format-annotation\"},{\"\$ref\":\"meta/content\"}],\"type\":[\"object\",\"boolean\"],\"\$comment\":\"This meta-schema also defines keywords that have appeared in previous drafts in order to prevent incompatible extensions as they remain in common use.\",\"properties\":{\"definitions\":{\"\$comment\":\"\\\"definitions\\\" has been replaced by \\\"\$defs\\\".\",\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"deprecated\":true,\"default\":{}},\"dependencies\":{\"\$comment\":\"\\\"dependencies\\\" has been split and replaced by \\\"dependentSchemas\\\" and \\\"dependentRequired\\\" in order to serve their differing semantics.\",\"type\":\"object\",\"additionalProperties\":{\"anyOf\":[{\"\$dynamicRef\":\"#meta\"},{\"\$ref\":\"meta/validation#/\$defs/stringArray\"}]},\"deprecated\":true,\"default\":{}},\"\$recursiveAnchor\":{\"\$comment\":\"\\\"\$recursiveAnchor\\\" has been replaced by \\\"\$dynamicAnchor\\\".\",\"\$ref\":\"meta/core#/\$defs/anchorString\",\"deprecated\":true},\"\$recursiveRef\":{\"\$comment\":\"\\\"\$recursiveRef\\\" has been replaced by \\\"\$dynamicRef\\\".\",\"\$ref\":\"meta/core#/\$defs/uriReferenceString\",\"deprecated\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/core",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/core\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"\$id\":{\"\$ref\":\"#/\$defs/uriReferenceString\",\"\$comment\":\"Non-empty fragments not allowed.\",\"pattern\":\"^[^#]*#?\$\"},\"\$schema\":{\"\$ref\":\"#/\$defs/uriString\"},\"\$ref\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$anchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$dynamicRef\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$dynamicAnchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$vocabulary\":{\"type\":\"object\",\"propertyNames\":{\"\$ref\":\"#/\$defs/uriString\"},\"additionalProperties\":{\"type\":\"boolean\"}},\"\$comment\":{\"type\":\"string\"},\"\$defs\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"}}},\"\$defs\":{\"anchorString\":{\"type\":\"string\",\"pattern\":\"^[A-Za-z_][-A-Za-z0-9._]*\$\"},\"uriString\":{\"type\":\"string\",\"format\":\"uri\"},\"uriReferenceString\":{\"type\":\"string\",\"format\":\"uri-reference\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/applicator",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/applicator\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"prefixItems\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"items\":{\"\$dynamicRef\":\"#meta\"},\"contains\":{\"\$dynamicRef\":\"#meta\"},\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"properties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"patternProperties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"propertyNames\":{\"format\":\"regex\"},\"default\":{}},\"dependentSchemas\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"propertyNames\":{\"\$dynamicRef\":\"#meta\"},\"if\":{\"\$dynamicRef\":\"#meta\"},\"then\":{\"\$dynamicRef\":\"#meta\"},\"else\":{\"\$dynamicRef\":\"#meta\"},\"allOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"anyOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"oneOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"not\":{\"\$dynamicRef\":\"#meta\"}},\"\$defs\":{\"schemaArray\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"\$dynamicRef\":\"#meta\"}}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/unevaluated",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/unevaluated\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Unevaluated applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"unevaluatedItems\":{\"\$dynamicRef\":\"#meta\"},\"unevaluatedProperties\":{\"\$dynamicRef\":\"#meta\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/validation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/validation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Validation vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"type\":{\"anyOf\":[{\"\$ref\":\"#/\$defs/simpleTypes\"},{\"type\":\"array\",\"items\":{\"\$ref\":\"#/\$defs/simpleTypes\"},\"minItems\":1,\"uniqueItems\":true}]},\"const\":true,\"enum\":{\"type\":\"array\",\"items\":true},\"multipleOf\":{\"type\":\"number\",\"exclusiveMinimum\":0},\"maximum\":{\"type\":\"number\"},\"exclusiveMaximum\":{\"type\":\"number\"},\"minimum\":{\"type\":\"number\"},\"exclusiveMinimum\":{\"type\":\"number\"},\"maxLength\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minLength\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"pattern\":{\"type\":\"string\",\"format\":\"regex\"},\"maxItems\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minItems\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"uniqueItems\":{\"type\":\"boolean\",\"default\":false},\"maxContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":1},\"maxProperties\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minProperties\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"required\":{\"\$ref\":\"#/\$defs/stringArray\"},\"dependentRequired\":{\"type\":\"object\",\"additionalProperties\":{\"\$ref\":\"#/\$defs/stringArray\"}}},\"\$defs\":{\"nonNegativeInteger\":{\"type\":\"integer\",\"minimum\":0},\"nonNegativeIntegerDefault0\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":0},\"simpleTypes\":{\"enum\":[\"array\",\"boolean\",\"integer\",\"null\",\"number\",\"object\",\"string\"]},\"stringArray\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"uniqueItems\":true,\"default\":[]}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/meta-data",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/meta-data\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Meta-data vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"default\":true,\"deprecated\":{\"type\":\"boolean\",\"default\":false},\"readOnly\":{\"type\":\"boolean\",\"default\":false},\"writeOnly\":{\"type\":\"boolean\",\"default\":false},\"examples\":{\"type\":\"array\",\"items\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/format-annotation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/format-annotation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Format vocabulary meta-schema for annotation results\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"format\":{\"type\":\"string\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/content",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/content\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Content vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"contentEncoding\":{\"type\":\"string\"},\"contentMediaType\":{\"type\":\"string\"},\"contentSchema\":{\"\$dynamicRef\":\"#meta\"}}}")]
+
+// Compile a group's schema against the remotes, then check that every
+// instance gets the suite's answer from both the full validation and
+// the fast path.
+fn run(group: Str, schema: Str, cases: [(Str, Str, Bool)]) [io]
+    let reg = remotes()
+    match json.parse(schema)
+        None    =>
+            test.case(group)
+            test.assert(false)
+        Some(d) =>
+            match schcompile.compile_with(d, reg)
+                Err(f) =>
+                    test.case(group + ": " + f.message())
+                    test.assert(false)
+                Ok(s)  =>
+                    for (what, data, valid) in cases
+                        test.case(group + ": " + what)
+                        match json.parse(data)
+                            None    =>
+                                test.assert(false)
+                            Some(i) =>
+                                test.assert(schvalidate.validate(s, i).valid == valid)
+                                test.assert(schvalidate.is_valid(s, i) == valid)
+
+@test
+fn test_content() [io]
+    run("content: validation of string-encoded content based on media type", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contentMediaType\":\"application/json\"}", [("a valid JSON document", "\"{\\\"foo\\\": \\\"bar\\\"}\"", true),
+        ("an invalid JSON document; validates true", "\"{:}\"", true),
+        ("ignores non-strings", "100", true)])
+    run("content: validation of binary string-encoding", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contentEncoding\":\"base64\"}", [("a valid base64 string", "\"eyJmb28iOiAiYmFyIn0K\"", true), ("an invalid base64 string (% is not a valid character); validates true",
+        "\"eyJmb28iOi%iYmFyIn0K\"",
+        true),
+    ("ignores non-strings", "100", true)])
+    run("content: validation of binary-encoded media type documents", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contentMediaType\":\"application/json\",\"contentEncoding\":\"base64\"}", [("a valid base64-encoded JSON document", "\"eyJmb28iOiAiYmFyIn0K\"", true),
+        ("a validly-encoded invalid JSON document; validates true", "\"ezp9Cg==\"", true),
+        ("an invalid base64 string that is valid JSON; validates true", "\"{}\"", true),
+        ("ignores non-strings", "100", true)])
+    run("content: validation of binary-encoded media type documents with schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contentMediaType\":\"application/json\",\"contentEncoding\":\"base64\",\"contentSchema\":{\"type\":\"object\",\"required\":[\"foo\"],\"properties\":{\"foo\":{\"type\":\"string\"}}}}", [("a valid base64-encoded JSON document", "\"eyJmb28iOiAiYmFyIn0K\"", true),
+        ("another valid base64-encoded JSON document", "\"eyJib28iOiAyMCwgImZvbyI6ICJiYXoifQ==\"", true),
+        ("an invalid base64-encoded JSON document; validates true", "\"eyJib28iOiAyMH0=\"", true),
+        ("an empty object as a base64-encoded JSON document; validates true", "\"e30=\"", true),
+        ("an empty array as a base64-encoded JSON document", "\"W10=\"", true),
+        ("a validly-encoded invalid JSON document; validates true", "\"ezp9Cg==\"", true),
+        ("an invalid base64 string that is valid JSON; validates true", "\"{}\"", true),
+        ("ignores non-strings", "100", true)])
+
+@test
+fn test_default() [io]
+    run("default: invalid type for default", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"integer\",\"default\":[]}}}", [("valid when property is specified", "{\"foo\":13}", true),
+        ("still valid when the invalid default is used", "{}", true)])
+    run("default: invalid string value for default", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"bar\":{\"type\":\"string\",\"minLength\":4,\"default\":\"bad\"}}}", [("valid when property is specified", "{\"bar\":\"good\"}", true),
+        ("still valid when the invalid default is used", "{}", true)])
+    run("default: the default keyword does not do anything if the property is missing", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"alpha\":{\"type\":\"number\",\"maximum\":3,\"default\":5}}}", [("an explicit property value is checked against maximum (passing)", "{\"alpha\":1}", true),
+        ("an explicit property value is checked against maximum (failing)", "{\"alpha\":5}", false),
+        ("missing properties are not filled in with the default", "{}", true)])
+
+@test
+fn test_format() [io]
+    run("format: email format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"email\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid email string is only an annotation by default", "\"2962\"", true)])
+    run("format: idn-email format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"idn-email\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid idn-email string is only an annotation by default", "\"2962\"", true)])
+    run("format: regex format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"regex\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid regex string is only an annotation by default", "\"^(abc]\"", true)])
+    run("format: ipv4 format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"ipv4\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid ipv4 string is only an annotation by default", "\"127.0.0.0.1\"", true)])
+    run("format: ipv6 format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"ipv6\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid ipv6 string is only an annotation by default", "\"12345::\"", true)])
+    run("format: idn-hostname format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"idn-hostname\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid idn-hostname string is only an annotation by default",
+        "\"〮실례.테스트\"",
+        true)])
+    run("format: hostname format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"hostname\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid hostname string is only an annotation by default",
+        "\"-a-host-name-that-starts-with--\"",
+        true)])
+    run("format: date format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"date\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid date string is only an annotation by default", "\"06/19/1963\"", true)])
+    run("format: date-time format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"date-time\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid date-time string is only an annotation by default",
+        "\"1990-02-31T15:59:60.123-08:00\"",
+        true)])
+    run("format: time format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"time\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid time string is only an annotation by default", "\"08:30:06 PST\"", true)])
+    run("format: json-pointer format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"json-pointer\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid json-pointer string is only an annotation by default", "\"/foo/bar~\"", true)])
+    run("format: relative-json-pointer format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"relative-json-pointer\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid relative-json-pointer string is only an annotation by default", "\"/foo/bar\"", true)])
+    run("format: iri format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"iri\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid iri string is only an annotation by default",
+        "\"http://2001:0db8:85a3:0000:0000:8a2e:0370:7334\"",
+        true)])
+    run("format: iri-reference format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"iri-reference\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid iri-reference string is only an annotation by default",
+        "\"\\\\\\\\WINDOWS\\\\filëßåré\"",
+        true)])
+    run("format: uri format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"uri\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid uri string is only an annotation by default", "\"//foo.bar/?baz=qux#quux\"", true)])
+    run("format: uri-reference format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"uri-reference\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid uri-reference string is only an annotation by default",
+        "\"\\\\\\\\WINDOWS\\\\fileshare\"",
+        true)])
+    run("format: uri-template format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"uri-template\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid uri-template string is only an annotation by default",
+        "\"http://example.com/dictionary/{term:1}/{term\"",
+        true)])
+    run("format: uuid format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"uuid\"}", [("all string formats ignore integers", "12", true), ("all string formats ignore floats", "13.7", true), ("all string formats ignore objects", "{}", true), ("all string formats ignore arrays", "[]", true), ("all string formats ignore booleans", "false", true), ("all string formats ignore nulls", "null", true), ("invalid uuid string is only an annotation by default",
+        "\"2eb8aa08-aa98-11ea-b4aa-73b441d1638\"",
+        true)])
+    run("format: duration format", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"format\":\"duration\"}", [("all string formats ignore integers", "12", true),
+        ("all string formats ignore floats", "13.7", true),
+        ("all string formats ignore objects", "{}", true),
+        ("all string formats ignore arrays", "[]", true),
+        ("all string formats ignore booleans", "false", true),
+        ("all string formats ignore nulls", "null", true),
+        ("invalid duration string is only an annotation by default", "\"PT1D\"", true)])
+
+@test
+fn test_unevaluatedItems() [io]
+    run("unevaluatedItems: unevaluatedItems true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":true}",
+        [("with no unevaluated items", "[]", true), ("with unevaluated items", "[\"foo\"]", true)])
+    run("unevaluatedItems: unevaluatedItems false",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":false}",
+        [("with no unevaluated items", "[]", true), ("with unevaluated items", "[\"foo\"]", false)])
+    run("unevaluatedItems: unevaluatedItems as schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":{\"type\":\"string\"}}", [("with no unevaluated items", "[]", true),
+        ("with valid unevaluated items", "[\"foo\"]", true),
+        ("with invalid unevaluated items", "[42]", false)])
+    run("unevaluatedItems: unevaluatedItems with uniform items",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":{\"type\":\"string\"},\"unevaluatedItems\":false}",
+        [("unevaluatedItems doesn't apply", "[\"foo\",\"bar\"]", true)])
+    run("unevaluatedItems: unevaluatedItems with tuple", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}],\"unevaluatedItems\":false}", [("with no unevaluated items", "[\"foo\"]", true),
+        ("with unevaluated items", "[\"foo\",\"bar\"]", false)])
+    run("unevaluatedItems: unevaluatedItems with items and prefixItems",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}],\"items\":true,\"unevaluatedItems\":false}",
+        [("unevaluatedItems doesn't apply", "[\"foo\",42]", true)])
+    run("unevaluatedItems: unevaluatedItems with items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":{\"type\":\"number\"},\"unevaluatedItems\":{\"type\":\"string\"}}", [("valid under items", "[5,6,7,8]", true),
+        ("invalid under items", "[\"foo\",\"bar\",\"baz\"]", false)])
+    run("unevaluatedItems: unevaluatedItems with nested tuple", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}],\"allOf\":[{\"prefixItems\":[true,{\"type\":\"number\"}]}],\"unevaluatedItems\":false}", [("with no unevaluated items", "[\"foo\",42]", true),
+        ("with unevaluated items", "[\"foo\",42,true]", false)])
+    run("unevaluatedItems: unevaluatedItems with nested items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":{\"type\":\"boolean\"},\"anyOf\":[{\"items\":{\"type\":\"string\"}},true]}", [("with only (valid) additional items", "[true,false]", true),
+        ("with no additional items", "[\"yes\",\"no\"]", true),
+        ("with invalid additional item", "[\"yes\",false]", false)])
+    run("unevaluatedItems: unevaluatedItems with nested prefixItems and items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"prefixItems\":[{\"type\":\"string\"}],\"items\":true}],\"unevaluatedItems\":false}", [("with no additional items", "[\"foo\"]", true),
+        ("with additional items", "[\"foo\",42,true]", true)])
+    run("unevaluatedItems: unevaluatedItems with nested unevaluatedItems", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"prefixItems\":[{\"type\":\"string\"}]},{\"unevaluatedItems\":true}],\"unevaluatedItems\":false}", [("with no additional items", "[\"foo\"]", true),
+        ("with additional items", "[\"foo\",42,true]", true)])
+    run("unevaluatedItems: unevaluatedItems with anyOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"const\":\"foo\"}],\"anyOf\":[{\"prefixItems\":[true,{\"const\":\"bar\"}]},{\"prefixItems\":[true,true,{\"const\":\"baz\"}]}],\"unevaluatedItems\":false}", [("when one schema matches and has no unevaluated items", "[\"foo\",\"bar\"]", true),
+        ("when one schema matches and has unevaluated items", "[\"foo\",\"bar\",42]", false),
+        ("when two schemas match and has no unevaluated items", "[\"foo\",\"bar\",\"baz\"]", true),
+        ("when two schemas match and has unevaluated items", "[\"foo\",\"bar\",\"baz\",42]", false)])
+    run("unevaluatedItems: unevaluatedItems with oneOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"const\":\"foo\"}],\"oneOf\":[{\"prefixItems\":[true,{\"const\":\"bar\"}]},{\"prefixItems\":[true,{\"const\":\"baz\"}]}],\"unevaluatedItems\":false}", [("with no unevaluated items", "[\"foo\",\"bar\"]", true),
+        ("with unevaluated items", "[\"foo\",\"bar\",42]", false)])
+    run("unevaluatedItems: unevaluatedItems with not",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"const\":\"foo\"}],\"not\":{\"not\":{\"prefixItems\":[true,{\"const\":\"bar\"}]}},\"unevaluatedItems\":false}",
+        [("with unevaluated items", "[\"foo\",\"bar\"]", false)])
+    run("unevaluatedItems: unevaluatedItems with if/then/else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"const\":\"foo\"}],\"if\":{\"prefixItems\":[true,{\"const\":\"bar\"}]},\"then\":{\"prefixItems\":[true,true,{\"const\":\"then\"}]},\"else\":{\"prefixItems\":[true,true,true,{\"const\":\"else\"}]},\"unevaluatedItems\":false}", [("when if matches and it has no unevaluated items", "[\"foo\",\"bar\",\"then\"]", true),
+        ("when if matches and it has unevaluated items", "[\"foo\",\"bar\",\"then\",\"else\"]", false),
+        ("when if doesn't match and it has no unevaluated items", "[\"foo\",42,42,\"else\"]", true),
+        ("when if doesn't match and it has unevaluated items", "[\"foo\",42,42,\"else\",42]", false)])
+    run("unevaluatedItems: unevaluatedItems with boolean schemas",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[true],\"unevaluatedItems\":false}",
+        [("with no unevaluated items", "[]", true), ("with unevaluated items", "[\"foo\"]", false)])
+    run("unevaluatedItems: unevaluatedItems with \$ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"#/\$defs/bar\",\"prefixItems\":[{\"type\":\"string\"}],\"unevaluatedItems\":false,\"\$defs\":{\"bar\":{\"prefixItems\":[true,{\"type\":\"string\"}]}}}", [("with no unevaluated items", "[\"foo\",\"bar\"]", true),
+        ("with unevaluated items", "[\"foo\",\"bar\",\"baz\"]", false)])
+    run("unevaluatedItems: unevaluatedItems before \$ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":false,\"prefixItems\":[{\"type\":\"string\"}],\"\$ref\":\"#/\$defs/bar\",\"\$defs\":{\"bar\":{\"prefixItems\":[true,{\"type\":\"string\"}]}}}", [("with no unevaluated items", "[\"foo\",\"bar\"]", true),
+        ("with unevaluated items", "[\"foo\",\"bar\",\"baz\"]", false)])
+    run("unevaluatedItems: unevaluatedItems with \$dynamicRef", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://example.com/unevaluated-items-with-dynamic-ref/derived\",\"\$ref\":\"./baseSchema\",\"\$defs\":{\"derived\":{\"\$dynamicAnchor\":\"addons\",\"prefixItems\":[true,{\"type\":\"string\"}]},\"baseSchema\":{\"\$id\":\"./baseSchema\",\"\$comment\":\"unevaluatedItems comes first so it's more likely to catch bugs with implementations that are sensitive to keyword ordering\",\"unevaluatedItems\":false,\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"}],\"\$dynamicRef\":\"#addons\",\"\$defs\":{\"defaultAddons\":{\"\$comment\":\"Needed to satisfy the bookending requirement\",\"\$dynamicAnchor\":\"addons\"}}}}}", [("with no unevaluated items", "[\"foo\",\"bar\"]", true),
+        ("with unevaluated items", "[\"foo\",\"bar\",\"baz\"]", false)])
+    run("unevaluatedItems: unevaluatedItems can't see inside cousins",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"prefixItems\":[true]},{\"unevaluatedItems\":false}]}",
+        [("always fails", "[1]", false)])
+    run("unevaluatedItems: item is evaluated in an uncle schema to unevaluatedItems", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"prefixItems\":[{\"type\":\"string\"}],\"unevaluatedItems\":false}},\"anyOf\":[{\"properties\":{\"foo\":{\"prefixItems\":[true,{\"type\":\"string\"}]}}}]}", [("no extra items", "{\"foo\":[\"test\"]}", true),
+        ("uncle keyword evaluation is not significant", "{\"foo\":[\"test\",\"test\"]}", false)])
+    run("unevaluatedItems: unevaluatedItems depends on adjacent contains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[true],\"contains\":{\"type\":\"string\"},\"unevaluatedItems\":false}", [("second item is evaluated by contains", "[1,\"foo\"]", true),
+        ("contains fails, second item is not evaluated", "[1,2]", false),
+        ("contains passes, second item is not evaluated", "[1,2,\"foo\"]", false)])
+    run("unevaluatedItems: unevaluatedItems depends on multiple nested contains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"contains\":{\"multipleOf\":2}},{\"contains\":{\"multipleOf\":3}}],\"unevaluatedItems\":{\"multipleOf\":5}}", [("5 not evaluated, passes unevaluatedItems", "[2,3,4,5,6]", true),
+        ("7 not evaluated, fails unevaluatedItems", "[2,3,4,7,8]", false)])
+    run("unevaluatedItems: unevaluatedItems and contains interact to control item dependency relationship", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"contains\":{\"const\":\"a\"}},\"then\":{\"if\":{\"contains\":{\"const\":\"b\"}},\"then\":{\"if\":{\"contains\":{\"const\":\"c\"}}}},\"unevaluatedItems\":false}", [("empty array is valid", "[]", true),
+        ("only a's are valid", "[\"a\",\"a\"]", true),
+        ("a's and b's are valid", "[\"a\",\"b\",\"a\",\"b\",\"a\"]", true),
+        ("a's, b's and c's are valid", "[\"c\",\"a\",\"c\",\"c\",\"b\",\"a\"]", true),
+        ("only b's are invalid", "[\"b\",\"b\"]", false),
+        ("only c's are invalid", "[\"c\",\"c\"]", false),
+        ("only b's and c's are invalid", "[\"c\",\"b\",\"c\",\"b\",\"c\"]", false),
+        ("only a's and c's are invalid", "[\"c\",\"a\",\"c\",\"a\",\"c\"]", false)])
+    run("unevaluatedItems: unevaluatedItems with minContains = 0", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"type\":\"string\"},\"minContains\":0,\"unevaluatedItems\":false}", [("empty array is valid", "[]", true),
+        ("no items evaluated by contains", "[0]", false),
+        ("some but not all items evaluated by contains", "[\"foo\",0]", false),
+        ("all items evaluated by contains", "[\"foo\",\"bar\"]", true)])
+    run("unevaluatedItems: non-array instances are valid", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":false}", [("ignores booleans", "true", true),
+        ("ignores integers", "123", true),
+        ("ignores floats", "1.0", true),
+        ("ignores objects", "{}", true),
+        ("ignores strings", "\"foo\"", true),
+        ("ignores null", "null", true)])
+    run("unevaluatedItems: unevaluatedItems with null instance elements",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedItems\":{\"type\":\"null\"}}",
+        [("allows null elements", "[null]", true)])
+    run("unevaluatedItems: unevaluatedItems can see annotations from if without then and else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"prefixItems\":[{\"const\":\"a\"}]},\"unevaluatedItems\":false}", [("valid in case if is evaluated", "[\"a\"]", true),
+        ("invalid in case if is evaluated", "[\"b\"]", false)])
+    run("unevaluatedItems: Evaluated items collection needs to consider instance location", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"prefixItems\":[true,{\"type\":\"string\"}]}],\"unevaluatedItems\":false}", [("with an unevaluated item that exists at another location",
+        "[[\"foo\",\"bar\"],\"bar\"]",
+        false)])
+
+@test
+fn test_unevaluatedProperties() [io]
+    run("unevaluatedProperties: unevaluatedProperties true", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedProperties\":true}", [("with no unevaluated properties", "{}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\"}", true)])
+    run("unevaluatedProperties: unevaluatedProperties schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedProperties\":{\"type\":\"string\",\"minLength\":3}}", [("with no unevaluated properties", "{}", true),
+        ("with valid unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with invalid unevaluated properties", "{\"foo\":\"fo\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedProperties\":false}", [("with no unevaluated properties", "{}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with adjacent properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":false}", [("with no unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with adjacent patternProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"^foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":false}", [("with no unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with adjacent bool additionalProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"additionalProperties\":true,\"unevaluatedProperties\":false}", [("with no additional properties", "{\"foo\":\"foo\"}", true),
+        ("with additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true)])
+    run("unevaluatedProperties: unevaluatedProperties with adjacent non-bool additionalProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"additionalProperties\":{\"type\":\"string\"},\"unevaluatedProperties\":false}", [("with no additional properties", "{\"foo\":\"foo\"}", true),
+        ("with additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true)])
+    run("unevaluatedProperties: unevaluatedProperties with nested properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[{\"properties\":{\"bar\":{\"type\":\"string\"}}}],\"unevaluatedProperties\":false}", [("with no additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with nested patternProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[{\"patternProperties\":{\"^bar\":{\"type\":\"string\"}}}],\"unevaluatedProperties\":false}", [("with no additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with nested additionalProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[{\"additionalProperties\":true}],\"unevaluatedProperties\":false}", [("with no additional properties", "{\"foo\":\"foo\"}", true),
+        ("with additional properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true)])
+    run("unevaluatedProperties: unevaluatedProperties with nested unevaluatedProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[{\"unevaluatedProperties\":true}],\"unevaluatedProperties\":{\"type\":\"string\",\"maxLength\":2}}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true)])
+    run("unevaluatedProperties: unevaluatedProperties with anyOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"anyOf\":[{\"properties\":{\"bar\":{\"const\":\"bar\"}},\"required\":[\"bar\"]},{\"properties\":{\"baz\":{\"const\":\"baz\"}},\"required\":[\"baz\"]},{\"properties\":{\"quux\":{\"const\":\"quux\"}},\"required\":[\"quux\"]}],\"unevaluatedProperties\":false}", [("when one matches and has no unevaluated properties",
+        "{\"foo\":\"foo\",\"bar\":\"bar\"}",
+        true),
+    ("when one matches and has unevaluated properties",
+        "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"not-baz\"}",
+        false),
+    ("when two match and has no unevaluated properties",
+        "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\"}",
+        true),
+    ("when two match and has unevaluated properties",
+        "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\",\"quux\":\"not-quux\"}",
+        false)])
+    run("unevaluatedProperties: unevaluatedProperties with oneOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"oneOf\":[{\"properties\":{\"bar\":{\"const\":\"bar\"}},\"required\":[\"bar\"]},{\"properties\":{\"baz\":{\"const\":\"baz\"}},\"required\":[\"baz\"]}],\"unevaluatedProperties\":false}", [("with no unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\",\"quux\":\"quux\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with not",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"not\":{\"not\":{\"properties\":{\"bar\":{\"const\":\"bar\"}},\"required\":[\"bar\"]}},\"unevaluatedProperties\":false}",
+        [("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with if/then/else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"properties\":{\"foo\":{\"const\":\"then\"}},\"required\":[\"foo\"]},\"then\":{\"properties\":{\"bar\":{\"type\":\"string\"}},\"required\":[\"bar\"]},\"else\":{\"properties\":{\"baz\":{\"type\":\"string\"}},\"required\":[\"baz\"]},\"unevaluatedProperties\":false}", [("when if is true and has no unevaluated properties",
+        "{\"foo\":\"then\",\"bar\":\"bar\"}",
+        true),
+    ("when if is true and has unevaluated properties",
+        "{\"foo\":\"then\",\"bar\":\"bar\",\"baz\":\"baz\"}",
+        false),
+    ("when if is false and has no unevaluated properties", "{\"baz\":\"baz\"}", true), ("when if is false and has unevaluated properties", "{\"foo\":\"else\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with if/then/else, then not defined", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"properties\":{\"foo\":{\"const\":\"then\"}},\"required\":[\"foo\"]},\"else\":{\"properties\":{\"baz\":{\"type\":\"string\"}},\"required\":[\"baz\"]},\"unevaluatedProperties\":false}", [("when if is true and has no unevaluated properties", "{\"foo\":\"then\"}", true),
+        ("when if is true and has unevaluated properties", "{\"foo\":\"then\",\"bar\":\"bar\"}", false),
+        ("when if is false and has no unevaluated properties", "{\"baz\":\"baz\"}", true),
+        ("when if is false and has unevaluated properties", "{\"foo\":\"else\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with if/then/else, else not defined", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"properties\":{\"foo\":{\"const\":\"then\"}},\"required\":[\"foo\"]},\"then\":{\"properties\":{\"bar\":{\"type\":\"string\"}},\"required\":[\"bar\"]},\"unevaluatedProperties\":false}", [("when if is true and has no unevaluated properties",
+        "{\"foo\":\"then\",\"bar\":\"bar\"}",
+        true),
+    ("when if is true and has unevaluated properties",
+        "{\"foo\":\"then\",\"bar\":\"bar\",\"baz\":\"baz\"}",
+        false),
+    ("when if is false and has no unevaluated properties", "{\"baz\":\"baz\"}", false), ("when if is false and has unevaluated properties", "{\"foo\":\"else\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with dependentSchemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"dependentSchemas\":{\"foo\":{\"properties\":{\"bar\":{\"const\":\"bar\"}},\"required\":[\"bar\"]}},\"unevaluatedProperties\":false}", [("with no unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with unevaluated properties", "{\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with boolean schemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[true],\"unevaluatedProperties\":false}", [("with no unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with unevaluated properties", "{\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with \$ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"#/\$defs/bar\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":false,\"\$defs\":{\"bar\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}}}", [("with no unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties before \$ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedProperties\":false,\"properties\":{\"foo\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\",\"\$defs\":{\"bar\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}}}", [("with no unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties with \$dynamicRef", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://example.com/unevaluated-properties-with-dynamic-ref/derived\",\"\$ref\":\"./baseSchema\",\"\$defs\":{\"derived\":{\"\$dynamicAnchor\":\"addons\",\"properties\":{\"bar\":{\"type\":\"string\"}}},\"baseSchema\":{\"\$id\":\"./baseSchema\",\"\$comment\":\"unevaluatedProperties comes first so it's more likely to catch bugs with implementations that are sensitive to keyword ordering\",\"unevaluatedProperties\":false,\"properties\":{\"foo\":{\"type\":\"string\"}},\"\$dynamicRef\":\"#addons\",\"\$defs\":{\"defaultAddons\":{\"\$comment\":\"Needed to satisfy the bookending requirement\",\"\$dynamicAnchor\":\"addons\"}}}}}", [("with no unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("with unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\",\"baz\":\"baz\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties can't see inside cousins",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":true}},{\"unevaluatedProperties\":false}]}",
+        [("always fails", "{\"foo\":1}", false)])
+    run("unevaluatedProperties: unevaluatedProperties can't see inside cousins (reverse order)",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"unevaluatedProperties\":false},{\"properties\":{\"foo\":true}}]}",
+        [("always fails", "{\"foo\":1}", false)])
+    run("unevaluatedProperties: nested unevaluatedProperties, outer false, inner true, properties outside", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[{\"unevaluatedProperties\":true}],\"unevaluatedProperties\":false}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true)])
+    run("unevaluatedProperties: nested unevaluatedProperties, outer false, inner true, properties inside", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":true}],\"unevaluatedProperties\":false}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true)])
+    run("unevaluatedProperties: nested unevaluatedProperties, outer true, inner false, properties outside", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"string\"}},\"allOf\":[{\"unevaluatedProperties\":false}],\"unevaluatedProperties\":true}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", false),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: nested unevaluatedProperties, outer true, inner false, properties inside", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":false}],\"unevaluatedProperties\":true}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: cousin unevaluatedProperties, true and false, true with properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":true},{\"unevaluatedProperties\":false}]}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", false),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: cousin unevaluatedProperties, true and false, false with properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"unevaluatedProperties\":true},{\"properties\":{\"foo\":{\"type\":\"string\"}},\"unevaluatedProperties\":false}]}", [("with no nested unevaluated properties", "{\"foo\":\"foo\"}", true),
+        ("with nested unevaluated properties", "{\"foo\":\"foo\",\"bar\":\"bar\"}", false)])
+    run("unevaluatedProperties: property is evaluated in an uncle schema to unevaluatedProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"properties\":{\"bar\":{\"type\":\"string\"}},\"unevaluatedProperties\":false}},\"anyOf\":[{\"properties\":{\"foo\":{\"properties\":{\"faz\":{\"type\":\"string\"}}}}}]}", [("no extra properties", "{\"foo\":{\"bar\":\"test\"}}", true), ("uncle keyword evaluation is not significant",
+        "{\"foo\":{\"bar\":\"test\",\"faz\":\"test\"}}",
+        false)])
+    run("unevaluatedProperties: in-place applicator siblings, allOf has unevaluated", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":true},\"unevaluatedProperties\":false}],\"anyOf\":[{\"properties\":{\"bar\":true}}]}", [("base case: both properties present", "{\"foo\":1,\"bar\":1}", false),
+        ("in place applicator siblings, bar is missing", "{\"foo\":1}", true),
+        ("in place applicator siblings, foo is missing", "{\"bar\":1}", false)])
+    run("unevaluatedProperties: in-place applicator siblings, anyOf has unevaluated", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":true}}],\"anyOf\":[{\"properties\":{\"bar\":true},\"unevaluatedProperties\":false}]}", [("base case: both properties present", "{\"foo\":1,\"bar\":1}", false),
+        ("in place applicator siblings, bar is missing", "{\"foo\":1}", false),
+        ("in place applicator siblings, foo is missing", "{\"bar\":1}", true)])
+    run("unevaluatedProperties: unevaluatedProperties + single cyclic ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"x\":{\"\$ref\":\"#\"}},\"unevaluatedProperties\":false}", [("Empty is valid", "{}", true),
+        ("Single is valid", "{\"x\":{}}", true),
+        ("Unevaluated on 1st level is invalid", "{\"x\":{},\"y\":{}}", false),
+        ("Nested is valid", "{\"x\":{\"x\":{}}}", true),
+        ("Unevaluated on 2nd level is invalid", "{\"x\":{\"x\":{},\"y\":{}}}", false),
+        ("Deep nested is valid", "{\"x\":{\"x\":{\"x\":{}}}}", true),
+        ("Unevaluated on 3rd level is invalid", "{\"x\":{\"x\":{\"x\":{},\"y\":{}}}}", false)])
+    run("unevaluatedProperties: unevaluatedProperties + ref inside allOf / oneOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"one\":{\"properties\":{\"a\":true}},\"two\":{\"required\":[\"x\"],\"properties\":{\"x\":true}}},\"allOf\":[{\"\$ref\":\"#/\$defs/one\"},{\"properties\":{\"b\":true}},{\"oneOf\":[{\"\$ref\":\"#/\$defs/two\"},{\"required\":[\"y\"],\"properties\":{\"y\":true}}]}],\"unevaluatedProperties\":false}", [("Empty is invalid (no x or y)", "{}", false),
+        ("a and b are invalid (no x or y)", "{\"a\":1,\"b\":1}", false),
+        ("x and y are invalid", "{\"x\":1,\"y\":1}", false),
+        ("a and x are valid", "{\"a\":1,\"x\":1}", true),
+        ("a and y are valid", "{\"a\":1,\"y\":1}", true),
+        ("a and b and x are valid", "{\"a\":1,\"b\":1,\"x\":1}", true),
+        ("a and b and y are valid", "{\"a\":1,\"b\":1,\"y\":1}", true),
+        ("a and b and x and y are invalid", "{\"a\":1,\"b\":1,\"x\":1,\"y\":1}", false)])
+    run("unevaluatedProperties: dynamic evalation inside nested refs", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"one\":{\"oneOf\":[{\"\$ref\":\"#/\$defs/two\"},{\"required\":[\"b\"],\"properties\":{\"b\":true}},{\"required\":[\"xx\"],\"patternProperties\":{\"x\":true}},{\"required\":[\"all\"],\"unevaluatedProperties\":true}]},\"two\":{\"oneOf\":[{\"required\":[\"c\"],\"properties\":{\"c\":true}},{\"required\":[\"d\"],\"properties\":{\"d\":true}}]}},\"oneOf\":[{\"\$ref\":\"#/\$defs/one\"},{\"required\":[\"a\"],\"properties\":{\"a\":true}}],\"unevaluatedProperties\":false}", [("Empty is invalid", "{}", false),
+        ("a is valid", "{\"a\":1}", true),
+        ("b is valid", "{\"b\":1}", true),
+        ("c is valid", "{\"c\":1}", true),
+        ("d is valid", "{\"d\":1}", true),
+        ("a + b is invalid", "{\"a\":1,\"b\":1}", false),
+        ("a + c is invalid", "{\"a\":1,\"c\":1}", false),
+        ("a + d is invalid", "{\"a\":1,\"d\":1}", false),
+        ("b + c is invalid", "{\"b\":1,\"c\":1}", false),
+        ("b + d is invalid", "{\"b\":1,\"d\":1}", false),
+        ("c + d is invalid", "{\"c\":1,\"d\":1}", false),
+        ("xx is valid", "{\"xx\":1}", true),
+        ("xx + foox is valid", "{\"xx\":1,\"foox\":1}", true),
+        ("xx + foo is invalid", "{\"xx\":1,\"foo\":1}", false),
+        ("xx + a is invalid", "{\"xx\":1,\"a\":1}", false),
+        ("xx + b is invalid", "{\"xx\":1,\"b\":1}", false),
+        ("xx + c is invalid", "{\"xx\":1,\"c\":1}", false),
+        ("xx + d is invalid", "{\"xx\":1,\"d\":1}", false),
+        ("all is valid", "{\"all\":1}", true),
+        ("all + foo is valid", "{\"all\":1,\"foo\":1}", true),
+        ("all + a is invalid", "{\"all\":1,\"a\":1}", false)])
+    run("unevaluatedProperties: non-object instances are valid", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedProperties\":false}", [("ignores booleans", "true", true),
+        ("ignores integers", "123", true),
+        ("ignores floats", "1.0", true),
+        ("ignores arrays", "[]", true),
+        ("ignores strings", "\"foo\"", true),
+        ("ignores null", "null", true)])
+    run("unevaluatedProperties: unevaluatedProperties with null valued instance properties",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"unevaluatedProperties\":{\"type\":\"null\"}}",
+        [("allows null valued properties", "{\"foo\":null}", true)])
+    run("unevaluatedProperties: unevaluatedProperties not affected by propertyNames", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":{\"maxLength\":1},\"unevaluatedProperties\":{\"type\":\"number\"}}", [("allows only number properties", "{\"a\":1}", true),
+        ("string property is invalid", "{\"a\":\"b\"}", false)])
+    run("unevaluatedProperties: unevaluatedProperties can see annotations from if without then and else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"patternProperties\":{\"foo\":{\"type\":\"string\"}}},\"unevaluatedProperties\":false}", [("valid in case if is evaluated", "{\"foo\":\"a\"}", true),
+        ("invalid in case if is evaluated", "{\"bar\":\"a\"}", false)])
+    run("unevaluatedProperties: dependentSchemas with unevaluatedProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo2\":{}},\"dependentSchemas\":{\"foo\":{},\"foo2\":{\"properties\":{\"bar\":{}}}},\"unevaluatedProperties\":false}", [("unevaluatedProperties doesn't consider dependentSchemas", "{\"foo\":\"\"}", false),
+        ("unevaluatedProperties doesn't see bar when foo2 is absent", "{\"bar\":\"\"}", false),
+        ("unevaluatedProperties sees bar when foo2 is present", "{\"foo2\":\"\",\"bar\":\"\"}", true)])
+    run("unevaluatedProperties: Evaluated properties collection needs to consider instance location", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"unevaluatedProperties\":false}", [("with an unevaluated property that exists at another location",
+        "{\"foo\":{\"bar\":\"foo\"},\"bar\":\"bar\"}",
+        false)])
+    run("unevaluatedProperties: Evaluated properties collection needs to consider instance location with patternProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"patternProperties\":{\"^bar\$\":{\"type\":\"string\"}}}},\"unevaluatedProperties\":false}", [("with only the nested evaluated property", "{\"foo\":{\"bar\":\"foo\"}}", true), ("with an unevaluated property that exists at another location",
+        "{\"foo\":{\"bar\":\"foo\"},\"bar\":\"bar\"}",
+        false)])
+    run("unevaluatedProperties: Evaluated properties collection needs to consider instance location with additionalProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"additionalProperties\":{\"type\":\"string\"}}},\"unevaluatedProperties\":false}", [("with only the nested evaluated property", "{\"foo\":{\"bar\":\"foo\"}}", true), ("with an unevaluated property that exists at another location",
+        "{\"foo\":{\"bar\":\"foo\"},\"bar\":\"bar\"}",
+        false)])

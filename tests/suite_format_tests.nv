@@ -1,0 +1,211 @@
+// suite_format_tests.nv — the JSON-Schema-Test-Suite's optional
+// draft2020-12 format files for the built-in formats.
+//
+// Written by tools/suite.py; do not edit by hand.  Each case is a
+// string the suite says is or is not in the format; the cases whose
+// instance is not a string test that a format ignores other types,
+// which the validation suites cover, and are left out here.
+
+use std.test
+use schformat
+
+fn check(name: Str, cases: [(Str, Str, Bool)]) [io]
+    let b = schformat.builtin_formats()
+    for (what, text, valid) in cases
+        test.case(name + ": " + what)
+        test.assert(schformat.check_format(b, name, text) == Some(valid))
+
+@test
+fn test_date() [io]
+    check("date", [("a valid date string", "1963-06-19", true), ("a valid date string with 31 days in January", "2020-01-31", true), ("a invalid date string with 32 days in January", "2020-01-32", false), ("a valid date string with 28 days in February (normal)", "2021-02-28", true), ("a invalid date string with 30 days in February (leap)", "2020-02-30", false), ("a valid date string with 31 days in March", "2020-03-31", true), ("a invalid date string with 32 days in March", "2020-03-32", false), ("a valid date string with 30 days in April", "2020-04-30", true), ("a invalid date string with 31 days in April", "2020-04-31", false), ("a valid date string with 31 days in May", "2020-05-31", true), ("a invalid date string with 32 days in May", "2020-05-32", false), ("a valid date string with 30 days in June", "2020-06-30", true), ("a invalid date string with 31 days in June", "2020-06-31", false), ("a valid date string with 31 days in July", "2020-07-31", true), ("a invalid date string with 32 days in July", "2020-07-32", false), ("a valid date string with 31 days in August", "2020-08-31", true), ("a invalid date string with 32 days in August", "2020-08-32", false), ("a valid date string with 30 days in September", "2020-09-30", true), ("a invalid date string with 31 days in September", "2020-09-31", false), ("a valid date string with 31 days in October", "2020-10-31", true), ("a invalid date string with 32 days in October", "2020-10-32", false), ("a valid date string with 30 days in November", "2020-11-30", true), ("a invalid date string with 31 days in November", "2020-11-31", false), ("a valid date string with 31 days in December", "2020-12-31", true), ("a invalid date string with 32 days in December", "2020-12-32", false), ("an invalid date string", "06/19/1963", false), ("only RFC3339 not all of ISO 8601 are valid", "2013-350", false), ("non-padded month dates are not valid", "1998-1-20", false), ("non-padded day dates are not valid", "1998-01-1", false), ("invalid month", "1998-13-01", false), ("2021 is not a leap year", "2021-02-29", false), ("2020 is a leap year", "2020-02-29", true), ("invalid non-ASCII '৪' (a Bengali 4)", "1963-06-1৪", false), ("invalid: non-ASCII Bengali digit in month field", "2020-0৪-01", false), ("ISO8601 / non-RFC3339: YYYYMMDD without dashes (2023-03-28)", "20230328", false), ("ISO8601 / non-RFC3339: week number implicit day of week (2023-01-02)", "2023-W01", false), ("ISO8601 / non-RFC3339: week number with day of week (2023-03-28)", "2023-W13-2", false), ("ISO8601 / non-RFC3339: week number rollover to next year (2023-01-01)", "2022W527", false), ("an invalid time string in date-time format", "2020-11-28T23:55:45Z", false), ("century year 0100 is not a leap year", "0100-02-29", false), ("century year 0400 is a leap year", "0400-02-29", true), ("century year 2100 is not a leap year", "2100-02-29", false), ("invalid: leading whitespace is not permitted", " 2024-01-15", false), ("invalid: trailing whitespace is not permitted", "2024-01-15 ", false), ("invalid: month 00 is not valid per date-month range 01-12", "2024-00-15", false), ("invalid: day 00 is not valid per date-mday minimum of 01", "2024-01-00", false), ("invalid: empty string", "", false), ("invalid: embedded whitespace between year and month", "2020 -01-01", false), ("invalid: trailing character after valid full-date", "2020-01-01X", false), ("invalid: trailing Z after full-date", "2020-01-01Z", false), ("invalid: full-date followed by space and time component", "2020-01-01 00:00:00Z", false), ("valid: four-digit year 0001", "0001-01-01", true), ("invalid: two-digit year (N-2 digits)", "20-01-01", false), ("invalid: three-digit year (N-1 digits)", "998-01-01", false), ("invalid: five-digit year (N+1 digits)", "12020-01-01", false), ("invalid: positive sign prefix on year", "+2020-01-01", false), ("invalid: negative sign prefix on year", "-2020-01-01", false), ("invalid: non-ASCII Bengali digit in year field", "২020-01-01", false), ("invalid: alphabetic characters in year field", "YYYY-01-01", false), ("invalid: three-digit month (N+1 digits)", "2020-001-01", false), ("invalid: alphabetic characters in month field", "2020-MM-01", false), ("invalid: three-digit day (N+1 digits)", "2020-01-001", false), ("invalid: alphabetic characters in day field", "2020-01-DD", false), ("invalid: colon separators", "2020:01:01", false), ("invalid: dot separators", "2020.01.01", false), ("invalid: space separators", "2020 01 01", false), ("invalid: mixed slash and hyphen separators", "2020-01/01", false), ("invalid: duplicated first hyphen", "2020--01-01", false), ("invalid: duplicated second hyphen", "2020-01--01", false), ("valid: date inside the Julian to Gregorian reform gap", "1582-10-10", true), ("invalid: year field numerically larger than a 32-bit signed integer",
+        "2147483648-01-01",
+        false),
+    ("invalid: character just above '9' as the second digit of the day", "2020-01-0:", false), ("invalid: non-ASCII digit leaving ten UTF-8 bytes but eight characters", "২0-01-01", false), ("invalid: en dash separators instead of hyphen-minus", "2020–01–01", false), ("invalid: NUL character after an otherwise valid full-date", "2020-01-01\x00", false)])
+
+@test
+fn test_time() [io]
+    check("time", [("a valid time string", "08:30:06Z", true),
+        ("invalid time string with extra leading zeros", "008:030:006Z", false),
+        ("invalid time string with no leading zero for single digit", "8:3:6Z", false),
+        ("hour, minute, second must be two digits", "8:0030:6Z", false),
+        ("a valid time string with leap second, Zulu", "23:59:60Z", true),
+        ("invalid leap second, Zulu (wrong hour)", "22:59:60Z", false),
+        ("invalid leap second, Zulu (wrong minute)", "23:58:60Z", false),
+        ("valid leap second, zero time-offset", "23:59:60+00:00", true),
+        ("invalid leap second, zero time-offset (wrong hour)", "22:59:60+00:00", false),
+        ("invalid leap second, zero time-offset (wrong minute)", "23:58:60+00:00", false),
+        ("valid leap second, positive time-offset", "01:29:60+01:30", true),
+        ("valid leap second, large positive time-offset", "23:29:60+23:30", true),
+        ("invalid leap second, positive time-offset (wrong hour)", "23:59:60+01:00", false),
+        ("invalid leap second, positive time-offset (wrong minute)", "23:59:60+00:30", false),
+        ("valid leap second, negative time-offset", "15:59:60-08:00", true),
+        ("valid leap second, large negative time-offset", "00:29:60-23:30", true),
+        ("invalid leap second, negative time-offset (wrong hour)", "23:59:60-01:00", false),
+        ("invalid leap second, negative time-offset (wrong minute)", "23:59:60-00:30", false),
+        ("a valid time string with second fraction", "23:20:50.52Z", true),
+        ("a valid time string with precise second fraction", "08:30:06.283185Z", true),
+        ("a valid time string with plus offset", "08:30:06+00:20", true),
+        ("a valid time string with minus offset", "08:30:06-08:00", true),
+        ("time with unknown local offset is valid", "12:34:56-00:00", true),
+        ("hour, minute in time-offset must be two digits", "08:30:06-8:000", false),
+        ("a valid time string with case-insensitive Z", "08:30:06z", true),
+        ("an invalid time string with invalid hour", "24:00:00Z", false),
+        ("an invalid time string with invalid minute", "00:60:00Z", false),
+        ("an invalid time string with invalid second", "00:00:61Z", false),
+        ("an invalid time string with invalid time numoffset hour", "01:02:03+24:00", false),
+        ("an invalid time string with invalid time numoffset minute", "01:02:03+00:60", false),
+        ("an invalid time string with invalid time with both Z and numoffset", "01:02:03Z+00:30", false),
+        ("an invalid offset indicator", "08:30:06 PST", false),
+        ("only RFC3339 not all of ISO 8601 are valid", "01:01:01,1111", false),
+        ("no time offset", "12:00:00", false),
+        ("no time offset with second fraction", "12:00:00.52", false),
+        ("invalid non-ASCII '২' (a Bengali 2)", "1২:00:00Z", false),
+        ("offset not starting with plus or minus", "08:30:06#00:20", false),
+        ("contains letters", "ab:cd:ef", false),
+        ("an invalid time string in date-time format", "2020-11-28T23:55:45Z", false),
+        ("a numeric time-offset requires the colon separator", "08:30:06+0130", false),
+        ("a numeric time-offset requires the minutes component", "08:30:06+01", false),
+        ("a trailing newline after a valid time", "08:30:06Z\n", false),
+        ("hour 24 is invalid with a numeric time-offset", "24:59:00+01:00", false),
+        ("minute 60 is invalid with a numeric time-offset", "23:60:00+00:01", false),
+        ("a valid time string with a 15 digit second fraction", "00:59:59.999999999999999Z", true),
+        ("a second fraction with no digits", "08:30:06.Z", false),
+        ("partial-time requires the seconds component", "12:00Z", false),
+        ("a comma decimal separator with a time-offset", "08:30:06,5Z", false),
+        ("leading whitespace before a valid time", " 08:30:06Z", false)])
+
+@test
+fn test_date_time() [io]
+    check("date-time", [("a valid date-time string", "1963-06-19T08:30:06.283185Z", true), ("a valid date-time string without second fraction", "1963-06-19T08:30:06Z", true), ("a valid date-time string with plus offset", "1937-01-01T12:00:27.87+00:20", true), ("a valid date-time string with minus offset", "1990-12-31T15:59:50.123-08:00", true), ("a valid date-time with a leap second, UTC", "1998-12-31T23:59:60Z", true), ("a valid date-time with a leap second, with minus offset",
+        "1998-12-31T15:59:60.123-08:00",
+        true),
+    ("an invalid date-time past leap second, UTC", "1998-12-31T23:59:61Z", false), ("an invalid date-time with leap second on a wrong minute, UTC", "1998-12-31T23:58:60Z", false), ("an invalid date-time with leap second on a wrong hour, UTC", "1998-12-31T22:59:60Z", false), ("an invalid day in date-time string", "1990-02-31T15:59:59.123-08:00", false), ("an invalid offset in date-time string", "1990-12-31T15:59:59-24:00", false), ("an invalid closing Z after time-zone offset", "1963-06-19T08:30:06.28123+01:00Z", false), ("an invalid hour in date-time string", "1990-12-31T24:00:00Z", false), ("an invalid minute in date-time string", "1990-12-31T15:60:00Z", false), ("an invalid offset minute in date-time string", "1990-12-31T10:00:00+10:60", false), ("an invalid date-time string", "06/19/1963 08:30:06 PST", false), ("case-insensitive T and Z", "1963-06-19t08:30:06.283185z", true), ("only RFC3339 not all of ISO 8601 are valid", "2013-350T01:01:01", false), ("invalid non-padded month dates", "1963-6-19T08:30:06.283185Z", false), ("invalid non-padded day dates", "1963-06-1T08:30:06.283185Z", false), ("invalid non-ASCII '৪' (a Bengali 4) in date portion", "1963-06-1৪T00:00:00Z", false), ("invalid non-ASCII '৪' (a Bengali 4) in time portion", "1963-06-11T0৪:00:00Z", false), ("invalid extended year", "+11963-06-19T08:30:06.283185Z", false), ("a numeric offset without minutes is invalid", "1985-04-12T23:20:50+01", false), ("hour 24 is invalid even with a leap second", "2016-12-31T24:59:60+01:00", false), ("a second fraction of fifteen nines is valid", "1985-04-12T00:59:59.999999999999999Z", true), ("a trailing newline is invalid", "1985-04-12T23:20:50Z\n", false), ("an invalid date-time string without seconds", "1985-04-12T23:20Z", false), ("an invalid date-time string with trailing content after the offset",
+        "1985-04-12T23:20:50Ztail",
+        false),
+    ("an invalid minute in date-time string, with a numeric offset",
+        "1985-04-12T23:60:00+00:01",
+        false),
+    ("a valid date-time string with 28 days in February (normal)", "2021-02-28T00:00:00Z", true), ("an invalid date-time string with 30 days in February (leap)", "2020-02-30T00:00:00Z", false), ("2021 is not a leap year", "2021-02-29T00:00:00Z", false), ("2020 is a leap year", "2020-02-29T00:00:00Z", true), ("century year 0100 is not a leap year", "0100-02-29T00:00:00Z", false), ("century year 0400 is a leap year", "0400-02-29T00:00:00Z", true), ("century year 2100 is not a leap year", "2100-02-29T00:00:00Z", false)])
+
+@test
+fn test_duration() [io]
+    check("duration", [("a valid duration string", "P4DT12H30M5S", true), ("an invalid duration string", "PT1D", false), ("must start with P", "4DT12H30M5S", false), ("no elements present", "P", false), ("no time elements present", "P1YT", false), ("no date or time elements present", "PT", false), ("elements out of order", "P2D1Y", false), ("missing time separator", "P1D2H", false), ("time element in the date position", "P2S", false), ("four years duration", "P4Y", true), ("zero time, in seconds", "PT0S", true), ("zero time, in days", "P0D", true), ("one month duration", "P1M", true), ("one minute duration", "PT1M", true), ("one and a half days, in hours", "PT36H", true), ("one and a half days, in days and hours", "P1DT12H", true), ("two weeks", "P2W", true), ("weeks cannot be combined with other units", "P1Y2W", false), ("invalid non-ASCII '২' (a Bengali 2)", "P২Y", false), ("element without unit", "P1", false), ("all date and time components", "P1Y2M3DT4H5M6S", true), ("date components only", "P1Y2M3D", true), ("time components only", "PT1H2M3S", true), ("month and day", "P1M2D", true), ("hour and minute", "PT1H30M", true), ("multi-digit values in all components", "P10Y10M10DT10H10M10S", true), ("fractional duration is not allowed by RFC 3339 ABNF", "PT0.5S", false), ("leading whitespace is invalid", " P1D", false), ("trailing whitespace is invalid", "P1D ", false), ("empty string is invalid", "", false), ("years and months can appear without days", "P1Y2M", true), ("years and days cannot appear without months", "P1Y2D", false), ("months and days can appear without years", "P1M2D", true), ("hours and minutes can appear without seconds", "PT1H2M", true), ("hours and seconds cannot appear without minutes", "PT1H2S", false), ("minutes and seconds can appear without hour", "PT1M2S", true), ("a leading sign is not allowed", "-P1D", false), ("a number before the time separator has no unit", "P1D2T3H", false), ("exponent notation is not allowed in a component", "P1e2D", false), ("a trailing newline is invalid", "P1D\n", false), ("weeks cannot be combined with a time component", "P1WT1H", false), ("weeks cannot be combined with a zero-valued component", "P0Y1W", false), ("a leading zero in a component is valid", "P01D", true), ("a component with many digits is valid",
+        "P999999999999999999999999999999999999999999999999999999999999999999999999999999D",
+        true),
+    ("a comma as the decimal separator is invalid", "PT0,5S", false), ("a sign inside a component is invalid", "P-1D", false)])
+
+@test
+fn test_uuid() [io]
+    check("uuid", [("all upper-case", "2EB8AA08-AA98-11EA-B4AA-73B441D16380", true), ("all lower-case", "2eb8aa08-aa98-11ea-b4aa-73b441d16380", true), ("mixed case", "2eb8aa08-AA98-11ea-B4Aa-73B441D16380", true), ("all zeroes is valid", "00000000-0000-0000-0000-000000000000", true), ("wrong length", "2eb8aa08-aa98-11ea-b4aa-73b441d1638", false), ("missing section", "2eb8aa08-aa98-11ea-73b441d16380", false), ("bad characters (not hex)", "2eb8aa08-aa98-11ea-b4ga-73b441d16380", false), ("no dashes", "2eb8aa08aa9811eab4aa73b441d16380", false), ("too few dashes", "2eb8aa08aa98-11ea-b4aa73b441d16380", false), ("too many dashes", "2eb8-aa08-aa98-11ea-b4aa73b44-1d16380", false), ("dashes in the wrong spot", "2eb8aa08aa9811eab4aa73b441d16380----", false), ("shifted dashes", "2eb8aa0-8aa98-11e-ab4aa7-3b441d16380", false), ("valid version 4", "98d80576-482e-427f-8434-7f86890ab222", true), ("valid version 5", "99c17cbb-656f-564a-940f-1a4568f03487", true), ("hypothetical version 6", "99c17cbb-656f-664a-940f-1a4568f03487", true), ("hypothetical version 15", "99c17cbb-656f-f64a-940f-1a4568f03487", true), ("URN prefixed UUID is invalid", "urn:uuid:2eb8aa08-aa98-11ea-b4aa-73b441d16380", false), ("a UUID wrapped in curly braces is invalid", "{2eb8aa08-aa98-11ea-b4aa-73b441d16380}", false), ("trailing hyphen after a complete UUID is invalid",
+        "2eb8aa08-aa98-11ea-b4aa-73b441d16380-",
+        false),
+    ("non-ASCII digit '২' (a Bengali 2) is invalid",
+        "২eb8aa08-aa98-11ea-b4aa-73b441d16380",
+        false),
+    ("an underscore in place of a hex digit is invalid",
+        "2eb8aa08-aa98-11ea-b4aa-73b441d1_380",
+        false),
+    ("a trailing newline after a complete UUID is invalid",
+        "2eb8aa08-aa98-11ea-b4aa-73b441d16380\n",
+        false),
+    ("a variant nibble not defined by RFC 4122 is valid",
+        "2eb8aa08-aa98-11ea-f4aa-73b441d16380",
+        true)])
+
+@test
+fn test_ipv4() [io]
+    check("ipv4", [("a valid IP address", "192.168.0.1", true),
+        ("an IP address with too many components", "127.0.0.0.1", false),
+        ("an IP address with out-of-range values", "256.256.256.256", false),
+        ("an IP address without 4 components", "127.0", false),
+        ("a 2-part address resolving to a routable IP (inet_aton shorthand)", "127.1", false),
+        ("a 3-part address resolving to a routable IP (inet_aton shorthand)", "127.0.1", false),
+        ("an IP address as an integer", "0x7f000001", false),
+        ("an IP address as an integer (decimal)", "2130706433", false),
+        ("invalid non-ASCII '২' (a Bengali 2)", "1২7.0.0.1", false),
+        ("invalid fullwidth digits (non-ASCII)", "１９２.１６８.１.１", false),
+        ("invalid mathematical bold digits (non-ASCII)", "𝟏𝟗𝟐.𝟏𝟔𝟖.𝟏.𝟏", false),
+        ("netmask is not a part of ipv4 address", "192.168.1.0/24", false),
+        ("leading whitespace is invalid", " 192.168.0.1", false),
+        ("trailing whitespace is invalid", "192.168.0.1 ", false),
+        ("trailing newline is invalid", "192.168.0.1\n", false),
+        ("hexadecimal notation is invalid", "0x7f.0.0.1", false),
+        ("octal notation explicit is invalid", "0o10.0.0.1", false),
+        ("empty part (double dot) is invalid", "192.168..1", false),
+        ("leading dot is invalid", ".192.168.0.1", false),
+        ("trailing dot is invalid", "192.168.0.1.", false),
+        ("minimum valid IPv4 address", "0.0.0.0", true),
+        ("maximum valid IPv4 address", "255.255.255.255", true),
+        ("valid IPv4 with an octet in the 200 to 249 range", "200.0.0.0", true),
+        ("valid IPv4 with two-digit octets", "10.20.30.40", true),
+        ("empty string is invalid", "", false),
+        ("plus sign is invalid", "+1.2.3.4", false),
+        ("negative sign is invalid", "-1.2.3.4", false),
+        ("exponential notation is invalid", "1e2.0.0.1", false),
+        ("alpha characters are invalid", "192.168.a.1", false),
+        ("internal whitespace is invalid", "192. 168.0.1", false),
+        ("tab character is invalid", "192.168.0.1\x09", false),
+        ("additional content after an embedded NUL byte", "192.168.0.1\x00.evil.com", false),
+        ("with port number is invalid", "192.168.0.1:80", false),
+        ("an IPv4-mapped IPv6 address is invalid", "::ffff:192.168.0.1", false),
+        ("single octet out of range in last position", "192.168.0.256", false)])
+
+@test
+fn test_ipv6() [io]
+    check("ipv6", [("a valid IPv6 address", "::1", true), ("a group with 5 hex digits is invalid", "12345::", false), ("trailing 4 hex symbols is valid", "::abef", true), ("trailing 5 hex symbols is invalid", "::abcef", false), ("an IPv6 address with too many components", "1:1:1:1:1:1:1:1:1:1:1:1:1:1:1:1", false), ("an IPv6 address containing illegal characters", "::laptop", false), ("no digits is valid", "::", true), ("leading colons is valid", "::42:ff:1", true), ("trailing colons is valid", "d6::", true), ("missing leading octet is invalid", ":2:3:4:5:6:7:8", false), ("missing trailing octet is invalid", "1:2:3:4:5:6:7:", false), ("missing leading octet with omitted octets later", ":2:3:4::8", false), ("single set of double colons in the middle is valid", "1:d6::42", true), ("two sets of double colons is invalid", "1::d6::42", false), ("mixed format with the ipv4 section as decimal octets", "1::d6:192.168.0.1", true), ("mixed format with double colons between the sections", "1:2::192.168.0.1", true), ("mixed format with ipv4 section with octet out of range", "1::2:192.168.256.1", false), ("mixed format with ipv4 section with a hex octet", "1::2:192.168.ff.1", false), ("mixed format with leading double colons (ipv4-mapped ipv6 address)",
+        "::ffff:192.168.0.1",
+        true),
+    ("triple colons is invalid", "1:2:3:4:5:::8", false), ("8 octets", "1:2:3:4:5:6:7:8", true), ("insufficient octets without double colons", "1:2:3:4:5:6:7", false), ("no colons is invalid", "1", false), ("ipv4 is not ipv6", "127.0.0.1", false), ("ipv4 segment must have 4 octets", "1:2:3:4:1.2.3", false), ("leading whitespace is invalid", "  ::1", false), ("trailing whitespace is invalid", "::1  ", false), ("netmask is not a part of ipv6 address", "fe80::/64", false), ("zone id is not a part of ipv6 address", "fe80::a%eth1", false), ("a long valid ipv6", "1000:1000:1000:1000:1000:1000:255.255.255.255", true), ("a long invalid ipv6, below length limit, first",
+        "100:100:100:100:100:100:255.255.255.255.255",
+        false),
+    ("a long invalid ipv6, below length limit, second",
+        "100:100:100:100:100:100:100:255.255.255.255",
+        false),
+    ("invalid non-ASCII '৪' (a Bengali 4)", "1:2:3:4:5:6:7:৪", false), ("invalid non-ASCII '৪' (a Bengali 4) in the IPv4 portion", "1:2::192.16৪.0.1", false), ("a bracketed address is invalid", "[::1]", false), ("a leading zero in the last IPv4 octet is invalid", "::ffff:192.168.0.01", false), ("uppercase hex digits are valid", "2001:DB8::1", true), ("leading zeros in every group are valid", "2001:0db8:0000:0000:0000:0000:0000:0001", true), ("two groups before '::' and four groups after is valid", "1:2::3:4:5:6", true), ("eight groups alongside '::' is invalid", "1:2:3:4:5:6:7:8::", false), ("trailing newline is invalid", "::1\n", false), ("an out-of-range first octet in the embedded IPv4 is invalid", "::ffff:256.1.1.1", false), ("one group before '::' and five groups after is valid", "1::2:3:4:5:6", true), ("'::' followed by six groups is valid", "::1:2:3:4:5:6", true), ("leading '::' before five groups and an embedded IPv4 is valid", "::1:2:3:4:5:1.2.3.4", true)])
+
+@test
+fn test_json_pointer() [io]
+    check("json-pointer", [("a valid JSON-pointer", "/foo/bar~0/baz~1/%a", true), ("not a valid JSON-pointer (~ not escaped)", "/foo/bar~", false), ("valid JSON-pointer with empty segment", "/foo//bar", true), ("valid JSON-pointer with the last empty segment", "/foo/bar/", true), ("valid JSON-pointer as stated in RFC 6901 #1", "", true), ("valid JSON-pointer as stated in RFC 6901 #2", "/foo", true), ("valid JSON-pointer as stated in RFC 6901 #3", "/foo/0", true), ("valid JSON-pointer as stated in RFC 6901 #4", "/", true), ("valid JSON-pointer as stated in RFC 6901 #5", "/a~1b", true), ("valid JSON-pointer as stated in RFC 6901 #6", "/c%d", true), ("valid JSON-pointer as stated in RFC 6901 #7", "/e^f", true), ("valid JSON-pointer as stated in RFC 6901 #8", "/g|h", true), ("valid JSON-pointer as stated in RFC 6901 #9", "/i\\j", true), ("valid JSON-pointer as stated in RFC 6901 #10", "/k\"l", true), ("valid JSON-pointer as stated in RFC 6901 #11", "/ ", true), ("valid JSON-pointer as stated in RFC 6901 #12", "/m~0n", true), ("valid JSON-pointer used adding to the last array position", "/foo/-", true), ("valid JSON-pointer (- used as object member name)", "/foo/-/bar", true), ("valid JSON-pointer (multiple escaped characters)", "/~1~0~0~1~1", true), ("valid JSON-pointer (escaped with fraction part) #1", "/~1.1", true), ("valid JSON-pointer (escaped with fraction part) #2", "/~0.1", true), ("not a valid JSON-pointer (URI Fragment Identifier) #1", "#", false), ("not a valid JSON-pointer (URI Fragment Identifier) #2", "#/", false), ("not a valid JSON-pointer (URI Fragment Identifier) #3", "#a", false), ("not a valid JSON-pointer (some escaped, but not all) #1", "/~0~", false), ("not a valid JSON-pointer (some escaped, but not all) #2", "/~0/~", false), ("not a valid JSON-pointer (wrong escape character) #1", "/~2", false), ("not a valid JSON-pointer (wrong escape character) #2", "/~-1", false), ("not a valid JSON-pointer (multiple characters not escaped)", "/~~", false), ("not a valid JSON-pointer (isn't empty nor starts with /) #1", "a", false), ("not a valid JSON-pointer (isn't empty nor starts with /) #2", "0", false), ("not a valid JSON-pointer (isn't empty nor starts with /) #3", "a/a", false), ("valid JSON-pointer (Unicode characters allowed by RFC 6901)", "/foo/bar/😎", true), ("valid JSON-pointer (control characters allowed after JSON unescaping)",
+        "/foo\x00bar\n\x09baz",
+        true)])
+
+@test
+fn test_relative_json_pointer() [io]
+    check("relative-json-pointer", [("a valid upwards RJP", "1", true),
+        ("a valid downwards RJP", "0/foo/bar", true),
+        ("a valid up and then down RJP, with array index", "2/0/baz/1/zip", true),
+        ("a valid RJP taking the member or index name", "0#", true),
+        ("an invalid RJP that is a valid JSON Pointer", "/foo/bar", false),
+        ("a json-pointer part that does not start with a slash is invalid", "1foo", false),
+        ("negative prefix", "-1/foo/bar", false),
+        ("explicit positive prefix", "+1/foo/bar", false),
+        ("non-ASCII digit in the prefix is not allowed", "١/foo", false),
+        ("## is not a valid json-pointer", "0##", false),
+        ("zero cannot be followed by other digits, plus json-pointer", "01/a", false),
+        ("zero cannot be followed by other digits, plus octothorpe", "01#", false),
+        ("empty string", "", false),
+        ("multi-digit integer prefix", "120/foo/bar", true),
+        ("multi-digit prefix with a zero followed by another digit", "100", true),
+        ("tilde not followed by 0 or 1 in the json-pointer part", "0/~2", false),
+        ("unescaped tilde at the end of the json-pointer part", "0/foo/bar~", false),
+        ("octothorpe followed by a json-pointer", "1#/foo/bar", false),
+        ("empty reference tokens in the json-pointer part", "0//", true),
+        ("trailing newline after the non-negative integer", "1\n", false)])
+
+@test
+fn test_hostname() [io]
+    check("hostname", [("a valid host name", "www.example.com", true), ("single label", "hostname", true), ("single label with digits", "h0stn4me", true), ("single label starting with digit", "1host", true), ("single label ending with digit", "hostnam3", true), ("empty string", "", false), ("single dot", ".", false), ("leading dot", ".example", false), ("trailing dot", "example.", false), ("IDN label separator", "example．com", false), ("single label with hyphen", "host-name", true), ("starts with hyphen", "-hostname", false), ("ends with hyphen", "hostname-", false), ("contains underscore", "host_name", false), ("exceeds maximum overall length (256)",
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk.abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk.abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk.abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk.com",
+        false),
+    ("maximum label length (63)",
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk.com",
+        true),
+    ("exceeds maximum label length (63)",
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl.com",
+        false),
+    ("trailing newline is invalid", "example.com\n", false), ("invalid non-ASCII KELVIN SIGN (U+212A)", "Kelvin.example.com", false), ("consecutive hyphens inside a label", "a--b.com", true), ("a valid host name (example.test in Hangul)", "xn--9n2bp8q.xn--9t4b11yi5a", true), ("Exceptions that are PVALID, left-to-right chars", "xn--zca29lwxobi7a", true), ("Exceptions that are PVALID, right-to-left chars", "xn--qmbc", true), ("MIDDLE DOT with surrounding 'l's", "xn--ll-0ea", true), ("Greek KERAIA followed by Greek", "xn--wva3je", true), ("Hebrew GERESH preceded by Hebrew", "xn--4dbc5h", true), ("Hebrew GERSHAYIM preceded by Hebrew", "xn--4dbc8h", true), ("KATAKANA MIDDLE DOT with Hiragana", "xn--k8j5u", true), ("KATAKANA MIDDLE DOT with Katakana", "xn--bck0j", true), ("KATAKANA MIDDLE DOT with Han", "xn--vek778f", true), ("Arabic-Indic digits not mixed with Extended Arabic-Indic digits", "xn--ngba1o", true), ("Extended Arabic-Indic digits not mixed with Arabic-Indic digits", "xn--0-gyc", true), ("ZERO WIDTH JOINER preceded by Virama", "xn--11b2ezcw70k", true), ("ZERO WIDTH NON-JOINER preceded by Virama", "xn--11b2ezcs70k", true), ("ZERO WIDTH NON-JOINER not preceded by Virama but matches regexp", "xn--ngba5hb2804a", true)])
+
+@test
+fn test_regex() [io]
+    check("regex", [("a valid regular expression", "([abc])+\\s+\$", true),
+        ("a regular expression with unclosed parens is invalid", "^(abc]", false)])

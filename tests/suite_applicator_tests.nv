@@ -1,0 +1,577 @@
+// suite_applicator_tests.nv — the JSON-Schema-Test-Suite's draft2020-12 files
+// for additionalProperties, allOf, anyOf, contains, dependentSchemas, if-then-else, items, not, oneOf, patternProperties, prefixItems, properties, propertyNames.
+//
+// Written by tools/suite.py; do not edit by hand.  Each test is one
+// file of the suite; each group compiles once against the suite's
+// remote documents, and each instance must get the suite's answer,
+// which Python's jsonschema was checked to give as well.
+
+use std.test
+use std.json
+use schcompile
+use schvalidate
+
+// The documents the suite serves at http://localhost:1234/, and the
+// 2020-12 meta-schemas, as one registry.
+fn remotes() -> SchRegistry
+    var r = schcompile.registry()
+    for (uri, text) in documents()
+        if let Some(d) = json.parse(text)
+            r = schcompile.with_document(r, uri, d)
+    r
+
+fn documents() -> [(Str, Str)]
+    [
+        ("http://localhost:1234/baseUriChange/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolder/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-ref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/draft2020-12/extendible-dynamic-ref.json",
+        "{\"description\":\"extendible array\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-false.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-false.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-true.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-true.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/metaschema-no-validation.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-no-validation.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/applicator\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"http://localhost:1234/draft/2020-12/vocab/custom\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/validation\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/draft2020-12/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/draft2020-12/the-nested-id.json\"}"),
+        ("http://localhost:1234/draft2020-12/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/draft2020-12/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/prefixItems.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/prefixItems.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}]}"),
+        ("http://localhost:1234/draft2020-12/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/draft2020-12/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/tree.json",
+        "{\"description\":\"tree schema, extensible\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/draft2020-12/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-2020-1200deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/integer.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/nested/foo-ref-string.json",
+        "{\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/nested/string.json", "{\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-ref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/v1/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/v1/extendible-dynamic-ref.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"extendible array\",\"\$id\":\"http://localhost:1234/v1/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/v1/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/v1/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/v1/the-nested-id.json\"}"),
+        ("http://localhost:1234/v1/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/v1/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$id\":\"http://localhost:1234/v1/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/v1/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/v1/tree.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"tree schema, extensible\",\"\$id\":\"http://localhost:1234/v1/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/v1/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-ff01-0000deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("https://json-schema.org/draft/2020-12/schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true,\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true,\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true,\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core and Validation specifications meta-schema\",\"allOf\":[{\"\$ref\":\"meta/core\"},{\"\$ref\":\"meta/applicator\"},{\"\$ref\":\"meta/unevaluated\"},{\"\$ref\":\"meta/validation\"},{\"\$ref\":\"meta/meta-data\"},{\"\$ref\":\"meta/format-annotation\"},{\"\$ref\":\"meta/content\"}],\"type\":[\"object\",\"boolean\"],\"\$comment\":\"This meta-schema also defines keywords that have appeared in previous drafts in order to prevent incompatible extensions as they remain in common use.\",\"properties\":{\"definitions\":{\"\$comment\":\"\\\"definitions\\\" has been replaced by \\\"\$defs\\\".\",\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"deprecated\":true,\"default\":{}},\"dependencies\":{\"\$comment\":\"\\\"dependencies\\\" has been split and replaced by \\\"dependentSchemas\\\" and \\\"dependentRequired\\\" in order to serve their differing semantics.\",\"type\":\"object\",\"additionalProperties\":{\"anyOf\":[{\"\$dynamicRef\":\"#meta\"},{\"\$ref\":\"meta/validation#/\$defs/stringArray\"}]},\"deprecated\":true,\"default\":{}},\"\$recursiveAnchor\":{\"\$comment\":\"\\\"\$recursiveAnchor\\\" has been replaced by \\\"\$dynamicAnchor\\\".\",\"\$ref\":\"meta/core#/\$defs/anchorString\",\"deprecated\":true},\"\$recursiveRef\":{\"\$comment\":\"\\\"\$recursiveRef\\\" has been replaced by \\\"\$dynamicRef\\\".\",\"\$ref\":\"meta/core#/\$defs/uriReferenceString\",\"deprecated\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/core",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/core\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"\$id\":{\"\$ref\":\"#/\$defs/uriReferenceString\",\"\$comment\":\"Non-empty fragments not allowed.\",\"pattern\":\"^[^#]*#?\$\"},\"\$schema\":{\"\$ref\":\"#/\$defs/uriString\"},\"\$ref\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$anchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$dynamicRef\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$dynamicAnchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$vocabulary\":{\"type\":\"object\",\"propertyNames\":{\"\$ref\":\"#/\$defs/uriString\"},\"additionalProperties\":{\"type\":\"boolean\"}},\"\$comment\":{\"type\":\"string\"},\"\$defs\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"}}},\"\$defs\":{\"anchorString\":{\"type\":\"string\",\"pattern\":\"^[A-Za-z_][-A-Za-z0-9._]*\$\"},\"uriString\":{\"type\":\"string\",\"format\":\"uri\"},\"uriReferenceString\":{\"type\":\"string\",\"format\":\"uri-reference\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/applicator",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/applicator\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"prefixItems\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"items\":{\"\$dynamicRef\":\"#meta\"},\"contains\":{\"\$dynamicRef\":\"#meta\"},\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"properties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"patternProperties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"propertyNames\":{\"format\":\"regex\"},\"default\":{}},\"dependentSchemas\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"propertyNames\":{\"\$dynamicRef\":\"#meta\"},\"if\":{\"\$dynamicRef\":\"#meta\"},\"then\":{\"\$dynamicRef\":\"#meta\"},\"else\":{\"\$dynamicRef\":\"#meta\"},\"allOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"anyOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"oneOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"not\":{\"\$dynamicRef\":\"#meta\"}},\"\$defs\":{\"schemaArray\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"\$dynamicRef\":\"#meta\"}}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/unevaluated",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/unevaluated\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Unevaluated applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"unevaluatedItems\":{\"\$dynamicRef\":\"#meta\"},\"unevaluatedProperties\":{\"\$dynamicRef\":\"#meta\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/validation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/validation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Validation vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"type\":{\"anyOf\":[{\"\$ref\":\"#/\$defs/simpleTypes\"},{\"type\":\"array\",\"items\":{\"\$ref\":\"#/\$defs/simpleTypes\"},\"minItems\":1,\"uniqueItems\":true}]},\"const\":true,\"enum\":{\"type\":\"array\",\"items\":true},\"multipleOf\":{\"type\":\"number\",\"exclusiveMinimum\":0},\"maximum\":{\"type\":\"number\"},\"exclusiveMaximum\":{\"type\":\"number\"},\"minimum\":{\"type\":\"number\"},\"exclusiveMinimum\":{\"type\":\"number\"},\"maxLength\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minLength\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"pattern\":{\"type\":\"string\",\"format\":\"regex\"},\"maxItems\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minItems\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"uniqueItems\":{\"type\":\"boolean\",\"default\":false},\"maxContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":1},\"maxProperties\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minProperties\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"required\":{\"\$ref\":\"#/\$defs/stringArray\"},\"dependentRequired\":{\"type\":\"object\",\"additionalProperties\":{\"\$ref\":\"#/\$defs/stringArray\"}}},\"\$defs\":{\"nonNegativeInteger\":{\"type\":\"integer\",\"minimum\":0},\"nonNegativeIntegerDefault0\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":0},\"simpleTypes\":{\"enum\":[\"array\",\"boolean\",\"integer\",\"null\",\"number\",\"object\",\"string\"]},\"stringArray\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"uniqueItems\":true,\"default\":[]}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/meta-data",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/meta-data\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Meta-data vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"default\":true,\"deprecated\":{\"type\":\"boolean\",\"default\":false},\"readOnly\":{\"type\":\"boolean\",\"default\":false},\"writeOnly\":{\"type\":\"boolean\",\"default\":false},\"examples\":{\"type\":\"array\",\"items\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/format-annotation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/format-annotation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Format vocabulary meta-schema for annotation results\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"format\":{\"type\":\"string\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/content",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/content\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Content vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"contentEncoding\":{\"type\":\"string\"},\"contentMediaType\":{\"type\":\"string\"},\"contentSchema\":{\"\$dynamicRef\":\"#meta\"}}}")]
+
+// Compile a group's schema against the remotes, then check that every
+// instance gets the suite's answer from both the full validation and
+// the fast path.
+fn run(group: Str, schema: Str, cases: [(Str, Str, Bool)]) [io]
+    let reg = remotes()
+    match json.parse(schema)
+        None    =>
+            test.case(group)
+            test.assert(false)
+        Some(d) =>
+            match schcompile.compile_with(d, reg)
+                Err(f) =>
+                    test.case(group + ": " + f.message())
+                    test.assert(false)
+                Ok(s)  =>
+                    for (what, data, valid) in cases
+                        test.case(group + ": " + what)
+                        match json.parse(data)
+                            None    =>
+                                test.assert(false)
+                            Some(i) =>
+                                test.assert(schvalidate.validate(s, i).valid == valid)
+                                test.assert(schvalidate.is_valid(s, i) == valid)
+
+@test
+fn test_additionalProperties() [io]
+    run("additionalProperties: additionalProperties being false does not allow other properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{},\"bar\":{}},\"patternProperties\":{\"^v\":{}},\"additionalProperties\":false}", [("no additional properties is valid", "{\"foo\":1}", true),
+        ("an additional property is invalid", "{\"foo\":1,\"bar\":2,\"quux\":\"boom\"}", false),
+        ("ignores arrays", "[1,2,3]", true),
+        ("ignores strings", "\"foobarbaz\"", true),
+        ("ignores other non-objects", "12", true),
+        ("patternProperties are not additional properties", "{\"foo\":1,\"vroom\":2}", true)])
+    run("additionalProperties: non-ASCII pattern with additionalProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"^á\":{}},\"additionalProperties\":false}", [("matching the pattern is valid", "{\"ármányos\":2}", true),
+        ("not matching the pattern is invalid", "{\"élmény\":2}", false)])
+    run("additionalProperties: additionalProperties with schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{},\"bar\":{}},\"additionalProperties\":{\"type\":\"boolean\"}}", [("no additional properties is valid", "{\"foo\":1}", true),
+        ("an additional valid property is valid", "{\"foo\":1,\"bar\":2,\"quux\":true}", true),
+        ("an additional invalid property is invalid", "{\"foo\":1,\"bar\":2,\"quux\":12}", false)])
+    run("additionalProperties: additionalProperties can exist by itself", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":{\"type\":\"boolean\"}}", [("an additional valid property is valid", "{\"foo\":true}", true),
+        ("an additional invalid property is invalid", "{\"foo\":1}", false)])
+    run("additionalProperties: additionalProperties are allowed by default",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{},\"bar\":{}}}",
+        [("additional properties are allowed", "{\"foo\":1,\"bar\":2,\"quux\":true}", true)])
+    run("additionalProperties: additionalProperties does not look in applicators",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"foo\":{}}}],\"additionalProperties\":{\"type\":\"boolean\"}}",
+        [("properties defined in allOf are not examined", "{\"foo\":1,\"bar\":true}", false)])
+    run("additionalProperties: additionalProperties with null valued instance properties",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":{\"type\":\"null\"}}",
+        [("allows null values", "{\"foo\":null}", true)])
+    run("additionalProperties: additionalProperties with propertyNames", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":{\"maxLength\":5},\"additionalProperties\":{\"type\":\"number\"}}", [("Valid against both keywords", "{\"apple\":4}", true), ("Valid against propertyNames, but not additionalProperties",
+        "{\"fig\":2,\"pear\":\"available\"}",
+        false)])
+    run("additionalProperties: dependentSchemas with additionalProperties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo2\":{}},\"dependentSchemas\":{\"foo\":{},\"foo2\":{\"properties\":{\"bar\":{}}}},\"additionalProperties\":false}", [("additionalProperties doesn't consider dependentSchemas", "{\"foo\":\"\"}", false), ("additionalProperties can't see bar", "{\"bar\":\"\"}", false), ("additionalProperties can't see bar even when foo2 is present",
+        "{\"foo2\":\"\",\"bar\":\"\"}",
+        false)])
+
+@test
+fn test_allOf() [io]
+    run("allOf: allOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"properties\":{\"bar\":{\"type\":\"integer\"}},\"required\":[\"bar\"]},{\"properties\":{\"foo\":{\"type\":\"string\"}},\"required\":[\"foo\"]}]}", [("allOf", "{\"foo\":\"baz\",\"bar\":2}", true),
+        ("mismatch second", "{\"foo\":\"baz\"}", false),
+        ("mismatch first", "{\"bar\":2}", false),
+        ("wrong type", "{\"foo\":\"baz\",\"bar\":\"quux\"}", false)])
+    run("allOf: allOf with base schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"bar\":{\"type\":\"integer\"}},\"required\":[\"bar\"],\"allOf\":[{\"properties\":{\"foo\":{\"type\":\"string\"}},\"required\":[\"foo\"]},{\"properties\":{\"baz\":{\"type\":\"null\"}},\"required\":[\"baz\"]}]}", [("valid", "{\"foo\":\"quux\",\"bar\":2,\"baz\":null}", true),
+        ("mismatch base schema", "{\"foo\":\"quux\",\"baz\":null}", false),
+        ("mismatch first allOf", "{\"bar\":2,\"baz\":null}", false),
+        ("mismatch second allOf", "{\"foo\":\"quux\",\"bar\":2}", false),
+        ("mismatch both", "{\"bar\":2}", false)])
+    run("allOf: allOf simple types",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"maximum\":30},{\"minimum\":20}]}",
+        [("valid", "25", true), ("mismatch one", "35", false)])
+    run("allOf: allOf with boolean schemas, all true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[true,true]}",
+        [("any value is valid", "\"foo\"", true)])
+    run("allOf: allOf with boolean schemas, some false",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[true,false]}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("allOf: allOf with boolean schemas, all false",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[false,false]}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("allOf: allOf with one empty schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{}]}",
+        [("any data is valid", "1", true)])
+    run("allOf: allOf with two empty schemas",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{},{}]}",
+        [("any data is valid", "1", true)])
+    run("allOf: allOf with the first empty schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{},{\"type\":\"number\"}]}",
+        [("number is valid", "1", true), ("string is invalid", "\"foo\"", false)])
+    run("allOf: allOf with the last empty schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"type\":\"number\"},{}]}",
+        [("number is valid", "1", true), ("string is invalid", "\"foo\"", false)])
+    run("allOf: nested allOf, to check validation semantics",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"allOf\":[{\"type\":\"null\"}]}]}",
+        [("null is valid", "null", true), ("anything non-null is invalid", "123", false)])
+    run("allOf: allOf combined with anyOf, oneOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"multipleOf\":2}],\"anyOf\":[{\"multipleOf\":3}],\"oneOf\":[{\"multipleOf\":5}]}", [("allOf: false, anyOf: false, oneOf: false", "1", false),
+        ("allOf: false, anyOf: false, oneOf: true", "5", false),
+        ("allOf: false, anyOf: true, oneOf: false", "3", false),
+        ("allOf: false, anyOf: true, oneOf: true", "15", false),
+        ("allOf: true, anyOf: false, oneOf: false", "2", false),
+        ("allOf: true, anyOf: false, oneOf: true", "10", false),
+        ("allOf: true, anyOf: true, oneOf: false", "6", false),
+        ("allOf: true, anyOf: true, oneOf: true", "30", true)])
+
+@test
+fn test_anyOf() [io]
+    run("anyOf: anyOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"type\":\"integer\"},{\"minimum\":2}]}", [("first anyOf valid", "1", true),
+        ("second anyOf valid", "2.5", true),
+        ("both anyOf valid", "3", true),
+        ("neither anyOf valid", "1.5", false)])
+    run("anyOf: anyOf with base schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\",\"anyOf\":[{\"maxLength\":2},{\"minLength\":4}]}", [("mismatch base schema", "3", false),
+        ("one anyOf valid", "\"foobar\"", true),
+        ("both anyOf invalid", "\"foo\"", false)])
+    run("anyOf: anyOf with boolean schemas, all true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[true,true]}",
+        [("any value is valid", "\"foo\"", true)])
+    run("anyOf: anyOf with boolean schemas, some true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[true,false]}",
+        [("any value is valid", "\"foo\"", true)])
+    run("anyOf: anyOf with boolean schemas, all false",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[false,false]}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("anyOf: anyOf complex types", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"properties\":{\"bar\":{\"type\":\"integer\"}},\"required\":[\"bar\"]},{\"properties\":{\"foo\":{\"type\":\"string\"}},\"required\":[\"foo\"]}]}", [("first anyOf valid (complex)", "{\"bar\":2}", true),
+        ("second anyOf valid (complex)", "{\"foo\":\"baz\"}", true),
+        ("both anyOf valid (complex)", "{\"foo\":\"baz\",\"bar\":2}", true),
+        ("neither anyOf valid (complex)", "{\"foo\":2,\"bar\":\"quux\"}", false)])
+    run("anyOf: anyOf with one empty schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"type\":\"number\"},{}]}",
+        [("string is valid", "\"foo\"", true), ("number is valid", "123", true)])
+    run("anyOf: nested anyOf, to check validation semantics",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"anyOf\":[{\"anyOf\":[{\"type\":\"null\"}]}]}",
+        [("null is valid", "null", true), ("anything non-null is invalid", "123", false)])
+
+@test
+fn test_contains() [io]
+    run("contains: contains keyword validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"minimum\":5}}", [("array with item matching schema (5) is valid", "[3,4,5]", true),
+        ("array with item matching schema (6) is valid", "[3,4,6]", true),
+        ("array with two items matching schema (5, 6) is valid", "[3,4,5,6]", true),
+        ("array without items matching schema is invalid", "[2,3,4]", false),
+        ("empty array is invalid", "[]", false),
+        ("not array is valid", "{}", true)])
+    run("contains: contains keyword with const keyword", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":5}}", [("array with item 5 is valid", "[3,4,5]", true),
+        ("array with two items 5 is valid", "[3,4,5,5]", true),
+        ("array without item 5 is invalid", "[1,2,3,4]", false)])
+    run("contains: contains keyword with boolean schema true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":true}",
+        [("any non-empty array is valid", "[\"foo\"]", true), ("empty array is invalid", "[]", false)])
+    run("contains: contains keyword with boolean schema false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":false}", [("any non-empty array is invalid", "[\"foo\"]", false),
+        ("empty array is invalid", "[]", false),
+        ("non-arrays are valid", "\"contains does not apply to strings\"", true)])
+    run("contains: items + contains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":{\"multipleOf\":2},\"contains\":{\"multipleOf\":3}}", [("matches items, does not match contains", "[2,4,8]", false),
+        ("does not match items, matches contains", "[3,6,9]", false),
+        ("matches both items and contains", "[6,12]", true),
+        ("matches neither items nor contains", "[1,5]", false)])
+    run("contains: contains with false if subschema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"if\":false,\"else\":true}}",
+        [("any non-empty array is valid", "[\"foo\"]", true), ("empty array is invalid", "[]", false)])
+    run("contains: contains with null instance elements",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"type\":\"null\"}}",
+        [("allows null items", "[null]", true)])
+
+@test
+fn test_dependentSchemas() [io]
+    run("dependentSchemas: single dependency", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentSchemas\":{\"bar\":{\"properties\":{\"foo\":{\"type\":\"integer\"},\"bar\":{\"type\":\"integer\"}}}}}", [("valid", "{\"foo\":1,\"bar\":2}", true),
+        ("no dependency", "{\"foo\":\"quux\"}", true),
+        ("wrong type", "{\"foo\":\"quux\",\"bar\":2}", false),
+        ("wrong type other", "{\"foo\":2,\"bar\":\"quux\"}", false),
+        ("wrong type both", "{\"foo\":\"quux\",\"bar\":\"quux\"}", false),
+        ("ignores arrays", "[\"bar\"]", true),
+        ("ignores strings", "\"foobar\"", true),
+        ("ignores other non-objects", "12", true)])
+    run("dependentSchemas: boolean subschemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentSchemas\":{\"foo\":true,\"bar\":false}}", [("object with property having schema true is valid", "{\"foo\":1}", true),
+        ("object with property having schema false is invalid", "{\"bar\":2}", false),
+        ("object with both properties is invalid", "{\"foo\":1,\"bar\":2}", false),
+        ("empty object is valid", "{}", true)])
+    run("dependentSchemas: dependencies with escaped characters", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentSchemas\":{\"foo\\tbar\":{\"minProperties\":4},\"foo'bar\":{\"required\":[\"foo\\\"bar\"]}}}", [("quoted tab", "{\"foo\\tbar\":1,\"a\":2,\"b\":3,\"c\":4}", true),
+        ("quoted quote", "{\"foo'bar\":{\"foo\\\"bar\":1}}", false),
+        ("quoted tab invalid under dependent schema", "{\"foo\\tbar\":1,\"a\":2}", false),
+        ("quoted quote invalid under dependent schema", "{\"foo'bar\":1}", false)])
+    run("dependentSchemas: dependent subschema incompatible with root", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{}},\"dependentSchemas\":{\"foo\":{\"properties\":{\"bar\":{}},\"additionalProperties\":false}}}", [("matches root", "{\"foo\":1}", false),
+        ("matches dependency", "{\"bar\":1}", true),
+        ("matches both", "{\"foo\":1,\"bar\":2}", false),
+        ("no dependency", "{\"baz\":1}", true)])
+
+@test
+fn test_if_then_else() [io]
+    run("if-then-else: ignore if without then or else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"const\":0}}", [("valid when valid against lone if", "0", true),
+        ("valid when invalid against lone if", "\"hello\"", true)])
+    run("if-then-else: ignore then without if", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"then\":{\"const\":0}}", [("valid when valid against lone then", "0", true),
+        ("valid when invalid against lone then", "\"hello\"", true)])
+    run("if-then-else: ignore else without if", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"else\":{\"const\":0}}", [("valid when valid against lone else", "0", true),
+        ("valid when invalid against lone else", "\"hello\"", true)])
+    run("if-then-else: if and then without else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"exclusiveMaximum\":0},\"then\":{\"minimum\":-10}}", [("valid through then", "-1", true),
+        ("invalid through then", "-100", false),
+        ("valid when if test fails", "3", true)])
+    run("if-then-else: if and else without then", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"exclusiveMaximum\":0},\"else\":{\"multipleOf\":2}}", [("valid when if test passes", "-1", true),
+        ("valid through else", "4", true),
+        ("invalid through else", "3", false)])
+    run("if-then-else: validate against correct branch, then vs else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":{\"exclusiveMaximum\":0},\"then\":{\"minimum\":-10},\"else\":{\"multipleOf\":2}}", [("valid through then", "-1", true),
+        ("invalid through then", "-100", false),
+        ("valid through else", "4", true),
+        ("invalid through else", "3", false)])
+    run("if-then-else: non-interference across combined schemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"if\":{\"exclusiveMaximum\":0}},{\"then\":{\"minimum\":-10}},{\"else\":{\"multipleOf\":2}}]}", [("valid, but would have been invalid through then", "-100", true),
+        ("valid, but would have been invalid through else", "3", true)])
+    run("if-then-else: if with boolean schema true", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":true,\"then\":{\"const\":\"then\"},\"else\":{\"const\":\"else\"}}", [("boolean schema true in if always chooses the then path (valid)", "\"then\"", true),
+        ("boolean schema true in if always chooses the then path (invalid)", "\"else\"", false)])
+    run("if-then-else: if with boolean schema false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"if\":false,\"then\":{\"const\":\"then\"},\"else\":{\"const\":\"else\"}}", [("boolean schema false in if always chooses the else path (invalid)", "\"then\"", false),
+        ("boolean schema false in if always chooses the else path (valid)", "\"else\"", true)])
+    run("if-then-else: if appears at the end when serialized (keyword processing sequence)", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"then\":{\"const\":\"yes\"},\"else\":{\"const\":\"other\"},\"if\":{\"maxLength\":4}}", [("yes redirects to then and passes", "\"yes\"", true),
+        ("other redirects to else and passes", "\"other\"", true),
+        ("no redirects to then and fails", "\"no\"", false),
+        ("invalid redirects to else and fails", "\"invalid\"", false)])
+    run("if-then-else: then: false fails when condition matches", "{\"if\":{\"const\":1},\"then\":false}", [("matches if → then=false → invalid", "1", false),
+        ("does not match if → then ignored → valid", "2", true)])
+    run("if-then-else: else: false fails when condition does not match", "{\"if\":{\"const\":1},\"else\":false}", [("matches if → else ignored → valid", "1", true),
+        ("does not match if → else executes → invalid", "2", false)])
+
+@test
+fn test_items() [io]
+    run("items: a schema given for items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":{\"type\":\"integer\"}}", [("valid items", "[1,2,3]", true),
+        ("wrong type of items", "[1,\"x\"]", false),
+        ("ignores non-arrays", "{\"foo\":\"bar\"}", true),
+        ("JavaScript pseudo-array is valid", "{\"0\":\"invalid\",\"length\":1}", true)])
+    run("items: items with boolean schema (true)",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":true}",
+        [("any array is valid", "[1,\"foo\",true]", true), ("empty array is valid", "[]", true)])
+    run("items: items with boolean schema (false)", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":false}", [("any non-empty array is invalid", "[1,\"foo\",true]", false),
+        ("empty array is valid", "[]", true)])
+    run("items: items and subitems", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"item\":{\"type\":\"array\",\"items\":false,\"prefixItems\":[{\"\$ref\":\"#/\$defs/sub-item\"},{\"\$ref\":\"#/\$defs/sub-item\"}]},\"sub-item\":{\"type\":\"object\",\"required\":[\"foo\"]}},\"type\":\"array\",\"items\":false,\"prefixItems\":[{\"\$ref\":\"#/\$defs/item\"},{\"\$ref\":\"#/\$defs/item\"},{\"\$ref\":\"#/\$defs/item\"}]}", [("valid items",
+        "[[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}]]",
+        true),
+    ("too many items",
+        "[[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}]]",
+        false),
+    ("too many sub-items",
+        "[[{\"foo\":null},{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}]]",
+        false),
+    ("wrong item",
+        "[{\"foo\":null},[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}]]",
+        false),
+    ("wrong sub-item",
+        "[[{},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}],[{\"foo\":null},{\"foo\":null}]]",
+        false),
+    ("fewer items is valid", "[[{\"foo\":null}],[{\"foo\":null}]]", true)])
+    run("items: nested items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"array\",\"items\":{\"type\":\"array\",\"items\":{\"type\":\"array\",\"items\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}}}}}", [("valid nested array", "[[[[1]],[[2],[3]]],[[[4],[5],[6]]]]", true),
+        ("nested array with invalid type", "[[[[\"1\"]],[[2],[3]]],[[[4],[5],[6]]]]", false),
+        ("not deep enough", "[[[1],[2],[3]],[[4],[5],[6]]]", false)])
+    run("items: prefixItems with no additional items allowed", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{},{},{}],\"items\":false}", [("empty array", "[]", true),
+        ("fewer number of items present (1)", "[1]", true),
+        ("fewer number of items present (2)", "[1,2]", true),
+        ("equal number of items present", "[1,2,3]", true),
+        ("additional items are not permitted", "[1,2,3,4]", false)])
+    run("items: items does not look in applicators, valid case", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"allOf\":[{\"prefixItems\":[{\"minimum\":3}]}],\"items\":{\"minimum\":5}}", [("prefixItems in allOf does not constrain items, invalid case", "[3,5]", false),
+        ("prefixItems in allOf does not constrain items, valid case", "[5,5]", true)])
+    run("items: prefixItems validation adjusts the starting index for items",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}],\"items\":{\"type\":\"integer\"}}",
+        [("valid items", "[\"x\",2,3]", true), ("wrong type of second item", "[\"x\",\"y\"]", false)])
+    run("items: items with heterogeneous array", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{}],\"items\":false}", [("heterogeneous invalid instance", "[\"foo\",\"bar\",37]", false),
+        ("valid instance", "[null]", true)])
+    run("items: items with null instance elements",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"items\":{\"type\":\"null\"}}",
+        [("allows null elements", "[null]", true)])
+
+@test
+fn test_not() [io]
+    run("not: not",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":{\"type\":\"integer\"}}",
+        [("allowed", "\"foo\"", true), ("disallowed", "1", false)])
+    run("not: not multiple types",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":{\"type\":[\"integer\",\"boolean\"]}}",
+        [("valid", "\"foo\"", true), ("mismatch", "1", false), ("other mismatch", "true", false)])
+    run("not: not more complex schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":{\"type\":\"object\",\"properties\":{\"foo\":{\"type\":\"string\"}}}}", [("match", "1", true),
+        ("other match", "{\"foo\":1}", true),
+        ("mismatch", "{\"foo\":\"bar\"}", false)])
+    run("not: forbidden property", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"not\":{}}}}", [("property present", "{\"foo\":1,\"bar\":2}", false),
+        ("property absent", "{\"bar\":1,\"baz\":2}", true)])
+    run("not: forbid everything with empty schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":{}}", [("number is invalid", "1", false),
+        ("string is invalid", "\"foo\"", false),
+        ("boolean true is invalid", "true", false),
+        ("boolean false is invalid", "false", false),
+        ("null is invalid", "null", false),
+        ("object is invalid", "{\"foo\":\"bar\"}", false),
+        ("empty object is invalid", "{}", false),
+        ("array is invalid", "[\"foo\"]", false),
+        ("empty array is invalid", "[]", false)])
+    run("not: forbid everything with boolean schema true", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":true}", [("number is invalid", "1", false),
+        ("string is invalid", "\"foo\"", false),
+        ("boolean true is invalid", "true", false),
+        ("boolean false is invalid", "false", false),
+        ("null is invalid", "null", false),
+        ("object is invalid", "{\"foo\":\"bar\"}", false),
+        ("empty object is invalid", "{}", false),
+        ("array is invalid", "[\"foo\"]", false),
+        ("empty array is invalid", "[]", false)])
+    run("not: allow everything with boolean schema false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":false}", [("number is valid", "1", true),
+        ("string is valid", "\"foo\"", true),
+        ("boolean true is valid", "true", true),
+        ("boolean false is valid", "false", true),
+        ("null is valid", "null", true),
+        ("object is valid", "{\"foo\":\"bar\"}", true),
+        ("empty object is valid", "{}", true),
+        ("array is valid", "[\"foo\"]", true),
+        ("empty array is valid", "[]", true)])
+    run("not: double negation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":{\"not\":{}}}",
+        [("any value is valid", "\"foo\"", true)])
+    run("not: collect annotations inside a 'not', even if collection is disabled", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"not\":{\"\$comment\":\"this subschema must still produce annotations internally, even though the 'not' will ultimately discard them\",\"anyOf\":[true,{\"properties\":{\"foo\":true}}],\"unevaluatedProperties\":false}}", [("unevaluated property", "{\"bar\":1}", true),
+        ("annotations are still collected inside a 'not'", "{\"foo\":1}", false)])
+
+@test
+fn test_oneOf() [io]
+    run("oneOf: oneOf", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[{\"type\":\"integer\"},{\"minimum\":2}]}", [("first oneOf valid", "1", true),
+        ("second oneOf valid", "2.5", true),
+        ("both oneOf valid", "3", false),
+        ("neither oneOf valid", "1.5", false)])
+    run("oneOf: oneOf with base schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\",\"oneOf\":[{\"minLength\":2},{\"maxLength\":4}]}", [("mismatch base schema", "3", false),
+        ("one oneOf valid", "\"foobar\"", true),
+        ("both oneOf valid", "\"foo\"", false)])
+    run("oneOf: oneOf with boolean schemas, all true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[true,true,true]}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("oneOf: oneOf with boolean schemas, one true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[true,false,false]}",
+        [("any value is valid", "\"foo\"", true)])
+    run("oneOf: oneOf with boolean schemas, more than one true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[true,true,false]}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("oneOf: oneOf with boolean schemas, all false",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[false,false,false]}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("oneOf: oneOf complex types", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[{\"properties\":{\"bar\":{\"type\":\"integer\"}},\"required\":[\"bar\"]},{\"properties\":{\"foo\":{\"type\":\"string\"}},\"required\":[\"foo\"]}]}", [("first oneOf valid (complex)", "{\"bar\":2}", true),
+        ("second oneOf valid (complex)", "{\"foo\":\"baz\"}", true),
+        ("both oneOf valid (complex)", "{\"foo\":\"baz\",\"bar\":2}", false),
+        ("neither oneOf valid (complex)", "{\"foo\":2,\"bar\":\"quux\"}", false)])
+    run("oneOf: oneOf with empty schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[{\"type\":\"number\"},{}]}",
+        [("one valid - valid", "\"foo\"", true), ("both valid - invalid", "123", false)])
+    run("oneOf: oneOf with required", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"oneOf\":[{\"required\":[\"foo\",\"bar\"]},{\"required\":[\"foo\",\"baz\"]}]}", [("both invalid - invalid", "{\"bar\":2}", false),
+        ("first valid - valid", "{\"foo\":1,\"bar\":2}", true),
+        ("second valid - valid", "{\"foo\":1,\"baz\":3}", true),
+        ("both valid - invalid", "{\"foo\":1,\"bar\":2,\"baz\":3}", false)])
+    run("oneOf: oneOf with missing optional property", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[{\"properties\":{\"bar\":true,\"baz\":true},\"required\":[\"bar\"]},{\"properties\":{\"foo\":true},\"required\":[\"foo\"]}]}", [("first oneOf valid", "{\"bar\":8}", true),
+        ("second oneOf valid", "{\"foo\":\"foo\"}", true),
+        ("both oneOf valid", "{\"foo\":\"foo\",\"bar\":8}", false),
+        ("neither oneOf valid", "{\"baz\":\"quux\"}", false)])
+    run("oneOf: nested oneOf, to check validation semantics",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"oneOf\":[{\"oneOf\":[{\"type\":\"null\"}]}]}",
+        [("null is valid", "null", true), ("anything non-null is invalid", "123", false)])
+
+@test
+fn test_patternProperties() [io]
+    run("patternProperties: patternProperties validates properties matching a regex", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"f.*o\":{\"type\":\"integer\"}}}", [("a single valid match is valid", "{\"foo\":1}", true),
+        ("multiple valid matches is valid", "{\"foo\":1,\"foooooo\":2}", true),
+        ("a single invalid match is invalid", "{\"foo\":\"bar\",\"fooooo\":2}", false),
+        ("multiple invalid matches is invalid", "{\"foo\":\"bar\",\"foooooo\":\"baz\"}", false),
+        ("ignores arrays", "[\"foo\"]", true),
+        ("ignores strings", "\"foo\"", true),
+        ("ignores other non-objects", "12", true)])
+    run("patternProperties: multiple simultaneous patternProperties are validated", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"a*\":{\"type\":\"integer\"},\"aaa*\":{\"maximum\":20}}}", [("a single valid match is valid", "{\"a\":21}", true),
+        ("a simultaneous match is valid", "{\"aaaa\":18}", true),
+        ("multiple matches is valid", "{\"a\":21,\"aaaa\":18}", true),
+        ("an invalid due to one is invalid", "{\"a\":\"bar\"}", false),
+        ("an invalid due to the other is invalid", "{\"aaaa\":31}", false),
+        ("an invalid due to both is invalid", "{\"aaa\":\"foo\",\"aaaa\":31}", false)])
+    run("patternProperties: regexes are not anchored by default and are case sensitive", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"[0-9]{2,}\":{\"type\":\"boolean\"},\"X_\":{\"type\":\"string\"}}}", [("non recognized members are ignored", "{\"answer 1\":\"42\"}", true),
+        ("recognized members are accounted for", "{\"a31b\":null}", false),
+        ("regexes are case sensitive", "{\"a_x_3\":3}", true),
+        ("regexes are case sensitive, 2", "{\"a_X_3\":3}", false)])
+    run("patternProperties: patternProperties with boolean schemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"f.*\":true,\"b.*\":false}}", [("object with property matching schema true is valid", "{\"foo\":1}", true),
+        ("object with property matching schema false is invalid", "{\"bar\":2}", false),
+        ("object with both properties is invalid", "{\"foo\":1,\"bar\":2}", false),
+        ("object with a property matching both true and false is invalid", "{\"foobar\":1}", false),
+        ("empty object is valid", "{}", true)])
+    run("patternProperties: patternProperties with null valued instance properties",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"patternProperties\":{\"^.*bar\$\":{\"type\":\"null\"}}}",
+        [("allows null values", "{\"foobar\":null}", true)])
+
+@test
+fn test_prefixItems() [io]
+    run("prefixItems: a schema given for prefixItems", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"integer\"},{\"type\":\"string\"}]}", [("correct types", "[1,\"foo\"]", true),
+        ("wrong types", "[\"foo\",1]", false),
+        ("incomplete array of items", "[1]", true),
+        ("array with additional items", "[1,\"foo\",true]", true),
+        ("empty array", "[]", true),
+        ("JavaScript pseudo-array is valid", "{\"0\":\"invalid\",\"1\":\"valid\",\"length\":2}", true)])
+    run("prefixItems: prefixItems with boolean schemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[true,false]}", [("array with one item is valid", "[1]", true),
+        ("array with two items is invalid", "[1,\"foo\"]", false),
+        ("empty array is valid", "[]", true)])
+    run("prefixItems: additional items are allowed by default",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"integer\"}]}",
+        [("only the first item is validated", "[1,\"foo\",false]", true)])
+    run("prefixItems: prefixItems with null instance elements",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"null\"}]}",
+        [("allows null elements", "[null]", true)])
+
+@test
+fn test_properties() [io]
+    run("properties: object properties validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"integer\"},\"bar\":{\"type\":\"string\"}}}", [("both properties present and valid is valid", "{\"foo\":1,\"bar\":\"baz\"}", true),
+        ("one property invalid is invalid", "{\"foo\":1,\"bar\":{}}", false),
+        ("both properties invalid is invalid", "{\"foo\":[],\"bar\":{}}", false),
+        ("doesn't invalidate other properties", "{\"quux\":[]}", true),
+        ("ignores arrays", "[]", true),
+        ("ignores other non-objects", "12", true)])
+    run("properties: properties, patternProperties, additionalProperties interaction", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"array\",\"maxItems\":3},\"bar\":{\"type\":\"array\"}},\"patternProperties\":{\"f.o\":{\"minItems\":2}},\"additionalProperties\":{\"type\":\"integer\"}}", [("property validates property", "{\"foo\":[1,2]}", true),
+        ("property invalidates property", "{\"foo\":[1,2,3,4]}", false),
+        ("patternProperty invalidates property", "{\"foo\":[]}", false),
+        ("patternProperty validates nonproperty", "{\"fxo\":[1,2]}", true),
+        ("patternProperty invalidates nonproperty", "{\"fxo\":[]}", false),
+        ("additionalProperty ignores property", "{\"bar\":[]}", true),
+        ("additionalProperty validates others", "{\"quux\":3}", true),
+        ("additionalProperty invalidates others", "{\"quux\":\"foo\"}", false)])
+    run("properties: properties with boolean schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":true,\"bar\":false}}", [("no property present is valid", "{}", true),
+        ("only 'true' property present is valid", "{\"foo\":1}", true),
+        ("only 'false' property present is invalid", "{\"bar\":2}", false),
+        ("both properties present is invalid", "{\"foo\":1,\"bar\":2}", false)])
+    run("properties: properties with escaped characters", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\\nbar\":{\"type\":\"number\"},\"foo\\\"bar\":{\"type\":\"number\"},\"foo\\\\bar\":{\"type\":\"number\"},\"foo\\rbar\":{\"type\":\"number\"},\"foo\\tbar\":{\"type\":\"number\"},\"foo\\fbar\":{\"type\":\"number\"}}}", [("object with all numbers is valid",
+        "{\"foo\\nbar\":1,\"foo\\\"bar\":1,\"foo\\\\bar\":1,\"foo\\rbar\":1,\"foo\\tbar\":1,\"foo\\fbar\":1}",
+        true),
+    ("object with strings is invalid",
+        "{\"foo\\nbar\":\"1\",\"foo\\\"bar\":\"1\",\"foo\\\\bar\":\"1\",\"foo\\rbar\":\"1\",\"foo\\tbar\":\"1\",\"foo\\fbar\":\"1\"}",
+        false)])
+    run("properties: properties with null valued instance properties",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"null\"}}}",
+        [("allows null values", "{\"foo\":null}", true)])
+    run("properties: properties whose names are Javascript object property names", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"__proto__\":{\"type\":\"number\"},\"toString\":{\"properties\":{\"length\":{\"type\":\"string\"}}},\"constructor\":{\"type\":\"number\"}}}", [("ignores arrays", "[]", true), ("ignores other non-objects", "12", true), ("none of the properties mentioned", "{}", true), ("__proto__ not valid", "{\"__proto__\":\"foo\"}", false), ("toString not valid", "{\"toString\":{\"length\":37}}", false), ("constructor not valid", "{\"constructor\":{\"length\":37}}", false), ("all present and valid",
+        "{\"__proto__\":12,\"toString\":{\"length\":\"foo\"},\"constructor\":37}",
+        true)])
+
+@test
+fn test_propertyNames() [io]
+    run("propertyNames: propertyNames validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":{\"maxLength\":3}}", [("all property names valid", "{\"f\":{},\"foo\":{}}", true),
+        ("some property names invalid", "{\"foo\":{},\"foobar\":{}}", false),
+        ("object without properties is valid", "{}", true),
+        ("ignores arrays", "[1,2,3,4]", true),
+        ("ignores strings", "\"foobar\"", true),
+        ("ignores other non-objects", "12", true),
+        ("ignores null", "null", true),
+        ("ignores booleans", "true", true)])
+    run("propertyNames: propertyNames validation with pattern", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":{\"pattern\":\"^a+\$\"}}", [("matching property names valid", "{\"a\":{},\"aa\":{},\"aaa\":{}}", true),
+        ("non-matching property name is invalid", "{\"aaA\":{}}", false),
+        ("object without properties is valid", "{}", true)])
+    run("propertyNames: propertyNames with boolean schema true", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":true}", [("object with any properties is valid", "{\"foo\":1}", true),
+        ("empty object is valid", "{}", true)])
+    run("propertyNames: propertyNames with boolean schema false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":false}", [("object with any properties is invalid", "{\"foo\":1}", false),
+        ("empty object is valid", "{}", true)])
+    run("propertyNames: propertyNames with const", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":{\"const\":\"foo\"}}", [("object with property foo is valid", "{\"foo\":1}", true),
+        ("object with any other property is invalid", "{\"bar\":1}", false),
+        ("empty object is valid", "{}", true)])
+    run("propertyNames: propertyNames with enum", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"propertyNames\":{\"enum\":[\"foo\",\"bar\"]}}", [("object with property foo is valid", "{\"foo\":1}", true),
+        ("object with property foo and bar is valid", "{\"foo\":1,\"bar\":1}", true),
+        ("object with any other property is invalid", "{\"baz\":1}", false),
+        ("empty object is valid", "{}", true)])

@@ -1,0 +1,639 @@
+// suite_validation_tests.nv — the JSON-Schema-Test-Suite's draft2020-12 files
+// for const, dependentRequired, enum, exclusiveMaximum, exclusiveMinimum, maxContains, maximum, maxItems, maxLength, maxProperties, minContains, minimum, minItems, minLength, minProperties, multipleOf, pattern, required, type, uniqueItems.
+//
+// Written by tools/suite.py; do not edit by hand.  Each test is one
+// file of the suite; each group compiles once against the suite's
+// remote documents, and each instance must get the suite's answer,
+// which Python's jsonschema was checked to give as well.
+
+use std.test
+use std.json
+use schcompile
+use schvalidate
+
+// The documents the suite serves at http://localhost:1234/, and the
+// 2020-12 meta-schemas, as one registry.
+fn remotes() -> SchRegistry
+    var r = schcompile.registry()
+    for (uri, text) in documents()
+        if let Some(d) = json.parse(text)
+            r = schcompile.with_document(r, uri, d)
+    r
+
+fn documents() -> [(Str, Str)]
+    [
+        ("http://localhost:1234/baseUriChange/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolder/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-ref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/draft2020-12/extendible-dynamic-ref.json",
+        "{\"description\":\"extendible array\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-false.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-false.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-true.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-true.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/metaschema-no-validation.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-no-validation.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/applicator\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"http://localhost:1234/draft/2020-12/vocab/custom\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/validation\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/draft2020-12/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/draft2020-12/the-nested-id.json\"}"),
+        ("http://localhost:1234/draft2020-12/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/draft2020-12/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/prefixItems.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/prefixItems.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}]}"),
+        ("http://localhost:1234/draft2020-12/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/draft2020-12/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/tree.json",
+        "{\"description\":\"tree schema, extensible\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/draft2020-12/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-2020-1200deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/integer.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/nested/foo-ref-string.json",
+        "{\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/nested/string.json", "{\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-ref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/v1/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/v1/extendible-dynamic-ref.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"extendible array\",\"\$id\":\"http://localhost:1234/v1/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/v1/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/v1/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/v1/the-nested-id.json\"}"),
+        ("http://localhost:1234/v1/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/v1/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$id\":\"http://localhost:1234/v1/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/v1/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/v1/tree.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"tree schema, extensible\",\"\$id\":\"http://localhost:1234/v1/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/v1/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-ff01-0000deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("https://json-schema.org/draft/2020-12/schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true,\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true,\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true,\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core and Validation specifications meta-schema\",\"allOf\":[{\"\$ref\":\"meta/core\"},{\"\$ref\":\"meta/applicator\"},{\"\$ref\":\"meta/unevaluated\"},{\"\$ref\":\"meta/validation\"},{\"\$ref\":\"meta/meta-data\"},{\"\$ref\":\"meta/format-annotation\"},{\"\$ref\":\"meta/content\"}],\"type\":[\"object\",\"boolean\"],\"\$comment\":\"This meta-schema also defines keywords that have appeared in previous drafts in order to prevent incompatible extensions as they remain in common use.\",\"properties\":{\"definitions\":{\"\$comment\":\"\\\"definitions\\\" has been replaced by \\\"\$defs\\\".\",\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"deprecated\":true,\"default\":{}},\"dependencies\":{\"\$comment\":\"\\\"dependencies\\\" has been split and replaced by \\\"dependentSchemas\\\" and \\\"dependentRequired\\\" in order to serve their differing semantics.\",\"type\":\"object\",\"additionalProperties\":{\"anyOf\":[{\"\$dynamicRef\":\"#meta\"},{\"\$ref\":\"meta/validation#/\$defs/stringArray\"}]},\"deprecated\":true,\"default\":{}},\"\$recursiveAnchor\":{\"\$comment\":\"\\\"\$recursiveAnchor\\\" has been replaced by \\\"\$dynamicAnchor\\\".\",\"\$ref\":\"meta/core#/\$defs/anchorString\",\"deprecated\":true},\"\$recursiveRef\":{\"\$comment\":\"\\\"\$recursiveRef\\\" has been replaced by \\\"\$dynamicRef\\\".\",\"\$ref\":\"meta/core#/\$defs/uriReferenceString\",\"deprecated\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/core",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/core\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"\$id\":{\"\$ref\":\"#/\$defs/uriReferenceString\",\"\$comment\":\"Non-empty fragments not allowed.\",\"pattern\":\"^[^#]*#?\$\"},\"\$schema\":{\"\$ref\":\"#/\$defs/uriString\"},\"\$ref\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$anchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$dynamicRef\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$dynamicAnchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$vocabulary\":{\"type\":\"object\",\"propertyNames\":{\"\$ref\":\"#/\$defs/uriString\"},\"additionalProperties\":{\"type\":\"boolean\"}},\"\$comment\":{\"type\":\"string\"},\"\$defs\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"}}},\"\$defs\":{\"anchorString\":{\"type\":\"string\",\"pattern\":\"^[A-Za-z_][-A-Za-z0-9._]*\$\"},\"uriString\":{\"type\":\"string\",\"format\":\"uri\"},\"uriReferenceString\":{\"type\":\"string\",\"format\":\"uri-reference\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/applicator",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/applicator\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"prefixItems\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"items\":{\"\$dynamicRef\":\"#meta\"},\"contains\":{\"\$dynamicRef\":\"#meta\"},\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"properties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"patternProperties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"propertyNames\":{\"format\":\"regex\"},\"default\":{}},\"dependentSchemas\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"propertyNames\":{\"\$dynamicRef\":\"#meta\"},\"if\":{\"\$dynamicRef\":\"#meta\"},\"then\":{\"\$dynamicRef\":\"#meta\"},\"else\":{\"\$dynamicRef\":\"#meta\"},\"allOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"anyOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"oneOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"not\":{\"\$dynamicRef\":\"#meta\"}},\"\$defs\":{\"schemaArray\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"\$dynamicRef\":\"#meta\"}}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/unevaluated",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/unevaluated\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Unevaluated applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"unevaluatedItems\":{\"\$dynamicRef\":\"#meta\"},\"unevaluatedProperties\":{\"\$dynamicRef\":\"#meta\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/validation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/validation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Validation vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"type\":{\"anyOf\":[{\"\$ref\":\"#/\$defs/simpleTypes\"},{\"type\":\"array\",\"items\":{\"\$ref\":\"#/\$defs/simpleTypes\"},\"minItems\":1,\"uniqueItems\":true}]},\"const\":true,\"enum\":{\"type\":\"array\",\"items\":true},\"multipleOf\":{\"type\":\"number\",\"exclusiveMinimum\":0},\"maximum\":{\"type\":\"number\"},\"exclusiveMaximum\":{\"type\":\"number\"},\"minimum\":{\"type\":\"number\"},\"exclusiveMinimum\":{\"type\":\"number\"},\"maxLength\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minLength\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"pattern\":{\"type\":\"string\",\"format\":\"regex\"},\"maxItems\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minItems\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"uniqueItems\":{\"type\":\"boolean\",\"default\":false},\"maxContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":1},\"maxProperties\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minProperties\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"required\":{\"\$ref\":\"#/\$defs/stringArray\"},\"dependentRequired\":{\"type\":\"object\",\"additionalProperties\":{\"\$ref\":\"#/\$defs/stringArray\"}}},\"\$defs\":{\"nonNegativeInteger\":{\"type\":\"integer\",\"minimum\":0},\"nonNegativeIntegerDefault0\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":0},\"simpleTypes\":{\"enum\":[\"array\",\"boolean\",\"integer\",\"null\",\"number\",\"object\",\"string\"]},\"stringArray\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"uniqueItems\":true,\"default\":[]}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/meta-data",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/meta-data\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Meta-data vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"default\":true,\"deprecated\":{\"type\":\"boolean\",\"default\":false},\"readOnly\":{\"type\":\"boolean\",\"default\":false},\"writeOnly\":{\"type\":\"boolean\",\"default\":false},\"examples\":{\"type\":\"array\",\"items\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/format-annotation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/format-annotation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Format vocabulary meta-schema for annotation results\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"format\":{\"type\":\"string\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/content",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/content\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Content vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"contentEncoding\":{\"type\":\"string\"},\"contentMediaType\":{\"type\":\"string\"},\"contentSchema\":{\"\$dynamicRef\":\"#meta\"}}}")]
+
+// Compile a group's schema against the remotes, then check that every
+// instance gets the suite's answer from both the full validation and
+// the fast path.
+fn run(group: Str, schema: Str, cases: [(Str, Str, Bool)]) [io]
+    let reg = remotes()
+    match json.parse(schema)
+        None    =>
+            test.case(group)
+            test.assert(false)
+        Some(d) =>
+            match schcompile.compile_with(d, reg)
+                Err(f) =>
+                    test.case(group + ": " + f.message())
+                    test.assert(false)
+                Ok(s)  =>
+                    for (what, data, valid) in cases
+                        test.case(group + ": " + what)
+                        match json.parse(data)
+                            None    =>
+                                test.assert(false)
+                            Some(i) =>
+                                test.assert(schvalidate.validate(s, i).valid == valid)
+                                test.assert(schvalidate.is_valid(s, i) == valid)
+
+@test
+fn test_const() [io]
+    run("const: const validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":2}", [("same value is valid", "2", true),
+        ("another value is invalid", "5", false),
+        ("another type is invalid", "\"a\"", false)])
+    run("const: const with object", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":{\"foo\":\"bar\",\"baz\":\"bax\"}}", [("same object is valid", "{\"foo\":\"bar\",\"baz\":\"bax\"}", true), ("same object with different property order is valid",
+        "{\"baz\":\"bax\",\"foo\":\"bar\"}",
+        true),
+    ("another object is invalid", "{\"foo\":\"bar\"}", false), ("another type is invalid", "[1,2]", false)])
+    run("const: const with array", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":[{\"foo\":\"bar\"}]}", [("same array is valid", "[{\"foo\":\"bar\"}]", true),
+        ("another array item is invalid", "[2]", false),
+        ("array with additional items is invalid", "[1,2,3]", false)])
+    run("const: const with null",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":null}",
+        [("null is valid", "null", true), ("not null is invalid", "0", false)])
+    run("const: const with false does not match 0", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":false}", [("false is valid", "false", true),
+        ("integer zero is invalid", "0", false),
+        ("float zero is invalid", "0.0", false)])
+    run("const: const with true does not match 1", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":true}", [("true is valid", "true", true),
+        ("integer one is invalid", "1", false),
+        ("float one is invalid", "1.0", false)])
+    run("const: const with [false] does not match [0]", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":[false]}", [("[false] is valid", "[false]", true),
+        ("[0] is invalid", "[0]", false),
+        ("[0.0] is invalid", "[0.0]", false)])
+    run("const: const with [true] does not match [1]", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":[true]}", [("[true] is valid", "[true]", true),
+        ("[1] is invalid", "[1]", false),
+        ("[1.0] is invalid", "[1.0]", false)])
+    run("const: const with {\"a\": false} does not match {\"a\": 0}", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":{\"a\":false}}", [("{\"a\": false} is valid", "{\"a\":false}", true),
+        ("{\"a\": 0} is invalid", "{\"a\":0}", false),
+        ("{\"a\": 0.0} is invalid", "{\"a\":0.0}", false)])
+    run("const: const with {\"a\": true} does not match {\"a\": 1}", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":{\"a\":true}}", [("{\"a\": true} is valid", "{\"a\":true}", true),
+        ("{\"a\": 1} is invalid", "{\"a\":1}", false),
+        ("{\"a\": 1.0} is invalid", "{\"a\":1.0}", false)])
+    run("const: const with 0 does not match other zero-like types", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":0}", [("false is invalid", "false", false),
+        ("integer zero is valid", "0", true),
+        ("float zero is valid", "0.0", true),
+        ("empty object is invalid", "{}", false),
+        ("empty array is invalid", "[]", false),
+        ("empty string is invalid", "\"\"", false)])
+    run("const: const with 1 does not match true", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":1}", [("true is invalid", "true", false),
+        ("integer one is valid", "1", true),
+        ("float one is valid", "1.0", true)])
+    run("const: const with -2.0 matches integer and float types", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":-2.0}", [("integer -2 is valid", "-2", true),
+        ("integer 2 is invalid", "2", false),
+        ("float -2.0 is valid", "-2.0", true),
+        ("float 2.0 is invalid", "2.0", false),
+        ("float -2.00001 is invalid", "-2.00001", false)])
+    run("const: float and integers are equal up to 64-bit representation limits", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":9007199254740992}", [("integer is valid", "9007199254740992", true),
+        ("integer minus one is invalid", "9007199254740991", false),
+        ("float is valid", "9007199254740992.0", true),
+        ("float minus one is invalid", "9007199254740991.0", false)])
+    run("const: nul characters in strings", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":\"hello\\u0000there\"}", [("match string with nul", "\"hello\\u0000there\"", true),
+        ("do not match string lacking nul", "\"hellothere\"", false)])
+    run("const: characters with the same visual representation but different codepoint", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":\"μ\",\"\$comment\":\"U+03BC\"}", [("character uses the same codepoint", "\"μ\"", true),
+        ("character looks the same but uses a different codepoint", "\"µ\"", false)])
+    run("const: characters with the same visual representation, but different number of codepoints", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"const\":\"ä\",\"\$comment\":\"U+00E4\"}", [("character uses the same codepoint", "\"ä\"", true),
+        ("character looks the same but uses combining marks", "\"ä\"", false)])
+
+@test
+fn test_dependentRequired() [io]
+    run("dependentRequired: single dependency", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentRequired\":{\"bar\":[\"foo\"]}}", [("neither", "{}", true),
+        ("nondependant", "{\"foo\":1}", true),
+        ("with dependency", "{\"foo\":1,\"bar\":2}", true),
+        ("missing dependency", "{\"bar\":2}", false),
+        ("ignores arrays", "[\"bar\"]", true),
+        ("ignores strings", "\"foobar\"", true),
+        ("ignores other non-objects", "12", true)])
+    run("dependentRequired: empty dependents", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentRequired\":{\"bar\":[]}}", [("empty object", "{}", true),
+        ("object with one property", "{\"bar\":2}", true),
+        ("non-object is valid", "1", true)])
+    run("dependentRequired: multiple dependents required", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentRequired\":{\"quux\":[\"foo\",\"bar\"]}}", [("neither", "{}", true),
+        ("nondependants", "{\"foo\":1,\"bar\":2}", true),
+        ("with dependencies", "{\"foo\":1,\"bar\":2,\"quux\":3}", true),
+        ("missing dependency", "{\"foo\":1,\"quux\":2}", false),
+        ("missing other dependency", "{\"bar\":1,\"quux\":2}", false),
+        ("missing both dependencies", "{\"quux\":1}", false)])
+    run("dependentRequired: dependencies with escaped characters", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"dependentRequired\":{\"foo\\nbar\":[\"foo\\rbar\"],\"foo\\\"bar\":[\"foo'bar\"]}}", [("CRLF", "{\"foo\\nbar\":1,\"foo\\rbar\":2}", true),
+        ("quoted quotes", "{\"foo'bar\":1,\"foo\\\"bar\":2}", true),
+        ("CRLF missing dependent", "{\"foo\\nbar\":1,\"foo\":2}", false),
+        ("quoted quotes missing dependent", "{\"foo\\\"bar\":2}", false)])
+
+@test
+fn test_enum() [io]
+    run("enum: simple enum validation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[1,2,3]}",
+        [("one of the enum is valid", "1", true), ("something else is invalid", "4", false)])
+    run("enum: heterogeneous enum validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[6,\"foo\",[],true,{\"foo\":12}]}", [("one of the enum is valid", "[]", true),
+        ("something else is invalid", "null", false),
+        ("objects are deep compared", "{\"foo\":false}", false),
+        ("valid object matches", "{\"foo\":12}", true),
+        ("extra properties in object is invalid", "{\"foo\":12,\"boo\":42}", false)])
+    run("enum: heterogeneous enum-with-null validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[6,null]}", [("null is valid", "null", true),
+        ("number is valid", "6", true),
+        ("something else is invalid", "\"test\"", false)])
+    run("enum: enums in properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"enum\":[\"foo\"]},\"bar\":{\"enum\":[\"bar\"]}},\"required\":[\"bar\"]}", [("both properties are valid", "{\"foo\":\"foo\",\"bar\":\"bar\"}", true),
+        ("wrong foo value", "{\"foo\":\"foot\",\"bar\":\"bar\"}", false),
+        ("wrong bar value", "{\"foo\":\"foo\",\"bar\":\"bart\"}", false),
+        ("missing optional property is valid", "{\"bar\":\"bar\"}", true),
+        ("missing required property is invalid", "{\"foo\":\"foo\"}", false),
+        ("missing all properties is invalid", "{}", false)])
+    run("enum: enum with escaped characters", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[\"foo\\nbar\",\"foo\\rbar\"]}", [("member 1 is valid", "\"foo\\nbar\"", true),
+        ("member 2 is valid", "\"foo\\rbar\"", true),
+        ("another string is invalid", "\"abc\"", false)])
+    run("enum: enum with false does not match 0", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[false]}", [("false is valid", "false", true),
+        ("integer zero is invalid", "0", false),
+        ("float zero is invalid", "0.0", false)])
+    run("enum: enum with [false] does not match [0]", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[[false]]}", [("[false] is valid", "[false]", true),
+        ("[0] is invalid", "[0]", false),
+        ("[0.0] is invalid", "[0.0]", false)])
+    run("enum: enum with true does not match 1", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[true]}", [("true is valid", "true", true),
+        ("integer one is invalid", "1", false),
+        ("float one is invalid", "1.0", false)])
+    run("enum: enum with [true] does not match [1]", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[[true]]}", [("[true] is valid", "[true]", true),
+        ("[1] is invalid", "[1]", false),
+        ("[1.0] is invalid", "[1.0]", false)])
+    run("enum: enum with 0 does not match false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[0]}", [("false is invalid", "false", false),
+        ("integer zero is valid", "0", true),
+        ("float zero is valid", "0.0", true)])
+    run("enum: enum with [0] does not match [false]", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[[0]]}", [("[false] is invalid", "[false]", false),
+        ("[0] is valid", "[0]", true),
+        ("[0.0] is valid", "[0.0]", true)])
+    run("enum: enum with 1 does not match true", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[1]}", [("true is invalid", "true", false),
+        ("integer one is valid", "1", true),
+        ("float one is valid", "1.0", true)])
+    run("enum: enum with [1] does not match [true]", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[[1]]}", [("[true] is invalid", "[true]", false),
+        ("[1] is valid", "[1]", true),
+        ("[1.0] is valid", "[1.0]", true)])
+    run("enum: nul characters in strings", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[\"hello\\u0000there\"]}", [("match string with nul", "\"hello\\u0000there\"", true),
+        ("do not match string lacking nul", "\"hellothere\"", false)])
+    run("enum: empty enum", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[]}", [("string is invalid", "\"foo\"", false),
+        ("number is invalid", "42", false),
+        ("null is invalid", "null", false),
+        ("object is invalid", "{}", false),
+        ("array is invalid", "[]", false),
+        ("boolean is invalid", "false", false)])
+    run("enum: characters with the same visual representation, but different number of codepoints", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"enum\":[\"ä\"],\"\$comment\":\"U+00E4\"}", [("character uses the same codepoint", "\"ä\"", true),
+        ("character looks the same but uses combining marks", "\"ä\"", false)])
+
+@test
+fn test_exclusiveMaximum() [io]
+    run("exclusiveMaximum: exclusiveMaximum validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"exclusiveMaximum\":3.0}", [("below the exclusiveMaximum is valid", "2.2", true),
+        ("boundary point is invalid", "3.0", false),
+        ("above the exclusiveMaximum is invalid", "3.5", false),
+        ("ignores non-numbers", "\"x\"", true)])
+
+@test
+fn test_exclusiveMinimum() [io]
+    run("exclusiveMinimum: exclusiveMinimum validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"exclusiveMinimum\":1.1}", [("above the exclusiveMinimum is valid", "1.2", true),
+        ("boundary point is invalid", "1.1", false),
+        ("below the exclusiveMinimum is invalid", "0.6", false),
+        ("ignores non-numbers", "\"x\"", true)])
+
+@test
+fn test_maxContains() [io]
+    run("maxContains: maxContains without contains is ignored", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxContains\":1}", [("one item valid against lone maxContains", "[1]", true),
+        ("two items still valid against lone maxContains", "[1,2]", true)])
+    run("maxContains: maxContains with contains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"maxContains\":1}", [("empty data", "[]", false),
+        ("all elements match, valid maxContains", "[1]", true),
+        ("all elements match, invalid maxContains", "[1,1]", false),
+        ("some elements match, valid maxContains", "[1,2]", true),
+        ("some elements match, invalid maxContains", "[1,2,1]", false)])
+    run("maxContains: maxContains with contains, value with a decimal", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"maxContains\":1.0}", [("one element matches, valid maxContains", "[1]", true),
+        ("too many elements match, invalid maxContains", "[1,1]", false)])
+    run("maxContains: minContains < maxContains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":1,\"maxContains\":3}", [("actual < minContains < maxContains", "[]", false),
+        ("minContains < actual < maxContains", "[1,1]", true),
+        ("minContains < maxContains < actual", "[1,1,1,1]", false)])
+    run("maxContains: maxContains = 0 with minContains = 0",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":0,\"maxContains\":0}",
+        [("empty array", "[]", true), ("one matching item", "[1]", false)])
+
+@test
+fn test_maximum() [io]
+    run("maximum: maximum validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maximum\":3.0}", [("below the maximum is valid", "2.6", true),
+        ("boundary point is valid", "3.0", true),
+        ("above the maximum is invalid", "3.5", false),
+        ("ignores non-numbers", "\"x\"", true)])
+    run("maximum: maximum validation with unsigned integer", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maximum\":300}", [("below the maximum is valid", "299.97", true),
+        ("boundary point integer is valid", "300", true),
+        ("boundary point float is valid", "300.0", true),
+        ("above the maximum is invalid", "300.5", false)])
+
+@test
+fn test_maxItems() [io]
+    run("maxItems: maxItems validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxItems\":2}", [("shorter is valid", "[1]", true),
+        ("exact length is valid", "[1,2]", true),
+        ("too long is invalid", "[1,2,3]", false),
+        ("ignores non-arrays", "\"foobar\"", true)])
+    run("maxItems: maxItems validation with a decimal",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxItems\":2.0}",
+        [("shorter is valid", "[1]", true), ("too long is invalid", "[1,2,3]", false)])
+
+@test
+fn test_maxLength() [io]
+    run("maxLength: maxLength validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxLength\":2}", [("shorter is valid", "\"f\"", true),
+        ("exact length is valid", "\"fo\"", true),
+        ("too long is invalid", "\"foo\"", false),
+        ("ignores non-strings", "100", true),
+        ("two graphemes is long enough", "\"💩💩\"", true)])
+    run("maxLength: maxLength validation with a decimal",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxLength\":2.0}",
+        [("shorter is valid", "\"f\"", true), ("too long is invalid", "\"foo\"", false)])
+
+@test
+fn test_maxProperties() [io]
+    run("maxProperties: maxProperties validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxProperties\":2}", [("shorter is valid", "{\"foo\":1}", true),
+        ("exact length is valid", "{\"foo\":1,\"bar\":2}", true),
+        ("too long is invalid", "{\"foo\":1,\"bar\":2,\"baz\":3}", false),
+        ("ignores arrays", "[1,2,3]", true),
+        ("ignores strings", "\"foobar\"", true),
+        ("ignores other non-objects", "12", true)])
+    run("maxProperties: maxProperties validation with a decimal", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxProperties\":2.0}", [("shorter is valid", "{\"foo\":1}", true),
+        ("too long is invalid", "{\"foo\":1,\"bar\":2,\"baz\":3}", false)])
+    run("maxProperties: maxProperties = 0 means the object is empty",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"maxProperties\":0}",
+        [("no properties is valid", "{}", true), ("one property is invalid", "{\"foo\":1}", false)])
+
+@test
+fn test_minContains() [io]
+    run("minContains: minContains without contains is ignored", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minContains\":1}", [("one item valid against lone minContains", "[1]", true),
+        ("zero items still valid against lone minContains", "[]", true)])
+    run("minContains: minContains=1 with contains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":1}", [("empty data", "[]", false),
+        ("no elements match", "[2]", false),
+        ("single element matches, valid minContains", "[1]", true),
+        ("some elements match, valid minContains", "[1,2]", true),
+        ("all elements match, valid minContains", "[1,1]", true)])
+    run("minContains: minContains=2 with contains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":2}", [("empty data", "[]", false),
+        ("all elements match, invalid minContains", "[1]", false),
+        ("some elements match, invalid minContains", "[1,2]", false),
+        ("all elements match, valid minContains (exactly as needed)", "[1,1]", true),
+        ("all elements match, valid minContains (more than needed)", "[1,1,1]", true),
+        ("some elements match, valid minContains", "[1,2,1]", true)])
+    run("minContains: minContains=2 with contains with a decimal value", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":2.0}", [("one element matches, invalid minContains", "[1]", false),
+        ("both elements match, valid minContains", "[1,1]", true)])
+    run("minContains: maxContains = minContains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"maxContains\":2,\"minContains\":2}", [("empty data", "[]", false),
+        ("all elements match, invalid minContains", "[1]", false),
+        ("all elements match, invalid maxContains", "[1,1,1]", false),
+        ("all elements match, valid maxContains and minContains", "[1,1]", true)])
+    run("minContains: maxContains < minContains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"maxContains\":1,\"minContains\":3}", [("empty data", "[]", false),
+        ("invalid minContains", "[1]", false),
+        ("invalid maxContains", "[1,1,1]", false),
+        ("invalid maxContains and minContains", "[1,1]", false)])
+    run("minContains: minContains = 0",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":0}",
+        [("empty data", "[]", true), ("minContains = 0 makes contains always pass", "[2]", true)])
+    run("minContains: minContains = 0 with maxContains", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"contains\":{\"const\":1},\"minContains\":0,\"maxContains\":1}", [("empty data", "[]", true),
+        ("not more than maxContains", "[1]", true),
+        ("too many", "[1,1]", false)])
+
+@test
+fn test_minimum() [io]
+    run("minimum: minimum validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minimum\":1.1}", [("above the minimum is valid", "2.6", true),
+        ("boundary point is valid", "1.1", true),
+        ("below the minimum is invalid", "0.6", false),
+        ("ignores non-numbers", "\"x\"", true)])
+    run("minimum: minimum validation with signed integer", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minimum\":-2}", [("negative above the minimum is valid", "-1", true),
+        ("positive above the minimum is valid", "0", true),
+        ("boundary point is valid", "-2", true),
+        ("boundary point with float is valid", "-2.0", true),
+        ("float below the minimum is invalid", "-2.0001", false),
+        ("int below the minimum is invalid", "-3", false),
+        ("ignores non-numbers", "\"x\"", true)])
+
+@test
+fn test_minItems() [io]
+    run("minItems: minItems validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minItems\":1}", [("longer is valid", "[1,2]", true),
+        ("exact length is valid", "[1]", true),
+        ("too short is invalid", "[]", false),
+        ("ignores non-arrays", "\"\"", true)])
+    run("minItems: minItems validation with a decimal",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minItems\":1.0}",
+        [("longer is valid", "[1,2]", true), ("too short is invalid", "[]", false)])
+
+@test
+fn test_minLength() [io]
+    run("minLength: minLength validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minLength\":2}", [("longer is valid", "\"foo\"", true),
+        ("exact length is valid", "\"fo\"", true),
+        ("too short is invalid", "\"f\"", false),
+        ("ignores non-strings", "1", true),
+        ("one grapheme is not long enough", "\"💩\"", false)])
+    run("minLength: minLength validation with a decimal",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minLength\":2.0}",
+        [("longer is valid", "\"foo\"", true), ("too short is invalid", "\"f\"", false)])
+
+@test
+fn test_minProperties() [io]
+    run("minProperties: minProperties validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minProperties\":1}", [("longer is valid", "{\"foo\":1,\"bar\":2}", true),
+        ("exact length is valid", "{\"foo\":1}", true),
+        ("too short is invalid", "{}", false),
+        ("ignores arrays", "[]", true),
+        ("ignores strings", "\"\"", true),
+        ("ignores other non-objects", "12", true),
+        ("ignores null", "null", true),
+        ("ignores booleans", "true", true)])
+    run("minProperties: minProperties validation with a decimal",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"minProperties\":1.0}",
+        [("longer is valid", "{\"foo\":1,\"bar\":2}", true), ("too short is invalid", "{}", false)])
+
+@test
+fn test_multipleOf() [io]
+    run("multipleOf: by int", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"multipleOf\":2}", [("int by int", "10", true),
+        ("int by int fail", "7", false),
+        ("ignores non-numbers", "\"foo\"", true)])
+    run("multipleOf: by number", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"multipleOf\":1.5}", [("zero is multiple of anything", "0", true),
+        ("4.5 is multiple of 1.5", "4.5", true),
+        ("-4.5 is multiple of 1.5", "-4.5", true),
+        ("35 is not multiple of 1.5", "35", false)])
+    run("multipleOf: by small number", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"multipleOf\":0.0001}", [("0.0075 is multiple of 0.0001", "0.0075", true),
+        ("0.00751 is not multiple of 0.0001", "0.00751", false)])
+    run("multipleOf: float division = inf",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\",\"multipleOf\":0.123456789}",
+        [("always invalid, but naive implementations may raise an overflow error", "1e+308", false)])
+    run("multipleOf: small multiple of large integer",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\",\"multipleOf\":1e-08}",
+        [("any integer is a multiple of 1e-8", "12391239123", true)])
+
+@test
+fn test_pattern() [io]
+    run("pattern: pattern validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"pattern\":\"^a*\$\"}", [("a matching pattern is valid", "\"aaa\"", true),
+        ("a non-matching pattern is invalid", "\"abc\"", false),
+        ("ignores booleans", "true", true),
+        ("ignores integers", "123", true),
+        ("ignores floats", "1.0", true),
+        ("ignores objects", "{}", true),
+        ("ignores arrays", "[]", true),
+        ("ignores null", "null", true)])
+    run("pattern: pattern is not anchored",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"pattern\":\"a+\"}",
+        [("matches a substring", "\"xxaayy\"", true)])
+
+@test
+fn test_required() [io]
+    run("required: required validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{},\"bar\":{}},\"required\":[\"foo\"]}", [("present required property is valid", "{\"foo\":1}", true),
+        ("non-present required property is invalid", "{\"bar\":1}", false),
+        ("ignores arrays", "[]", true),
+        ("ignores strings", "\"\"", true),
+        ("ignores other non-objects", "12", true),
+        ("ignores null", "null", true),
+        ("ignores boolean", "true", true)])
+    run("required: required default validation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{}}}",
+        [("not required by default", "{}", true)])
+    run("required: required with empty array",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{}},\"required\":[]}",
+        [("property not required", "{}", true)])
+    run("required: required with escaped characters", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"required\":[\"foo\\nbar\",\"foo\\\"bar\",\"foo\\\\bar\",\"foo\\rbar\",\"foo\\tbar\",\"foo\\fbar\"]}", [("object with all properties present is valid",
+        "{\"foo\\nbar\":1,\"foo\\\"bar\":1,\"foo\\\\bar\":1,\"foo\\rbar\":1,\"foo\\tbar\":1,\"foo\\fbar\":1}",
+        true),
+    ("object with some properties missing is invalid",
+        "{\"foo\\nbar\":\"1\",\"foo\\\"bar\":\"1\"}",
+        false)])
+    run("required: required properties whose names are Javascript object property names", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"required\":[\"__proto__\",\"toString\",\"constructor\"]}", [("ignores arrays", "[]", true),
+        ("ignores other non-objects", "12", true),
+        ("none of the properties mentioned", "{}", false),
+        ("__proto__ present", "{\"__proto__\":\"foo\"}", false),
+        ("toString present", "{\"toString\":{\"length\":37}}", false),
+        ("constructor present", "{\"constructor\":{\"length\":37}}", false),
+        ("all present", "{\"__proto__\":12,\"toString\":{\"length\":\"foo\"},\"constructor\":37}", true)])
+
+@test
+fn test_type() [io]
+    run("type: integer type matches integers", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}", [("an integer is an integer", "1", true),
+        ("a float with zero fractional part is an integer", "1.0", true),
+        ("a float is not an integer", "1.1", false),
+        ("a string is not an integer", "\"foo\"", false),
+        ("a string is still not an integer, even if it looks like one", "\"1\"", false),
+        ("an object is not an integer", "{}", false),
+        ("an array is not an integer", "[]", false),
+        ("a boolean is not an integer", "true", false),
+        ("null is not an integer", "null", false)])
+    run("type: number type matches numbers", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"number\"}", [("an integer is a number", "1", true),
+        ("a float with zero fractional part is a number (and an integer)", "1.0", true),
+        ("a float is a number", "1.1", true),
+        ("a string is not a number", "\"foo\"", false),
+        ("a string is still not a number, even if it looks like one", "\"1\"", false),
+        ("an object is not a number", "{}", false),
+        ("an array is not a number", "[]", false),
+        ("a boolean is not a number", "true", false),
+        ("null is not a number", "null", false)])
+    run("type: string type matches strings", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\"}", [("1 is not a string", "1", false),
+        ("a float is not a string", "1.1", false),
+        ("a string is a string", "\"foo\"", true),
+        ("a string is still a string, even if it looks like a number", "\"1\"", true),
+        ("an empty string is still a string", "\"\"", true),
+        ("an object is not a string", "{}", false),
+        ("an array is not a string", "[]", false),
+        ("a boolean is not a string", "true", false),
+        ("null is not a string", "null", false)])
+    run("type: object type matches objects", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}", [("an integer is not an object", "1", false),
+        ("a float is not an object", "1.1", false),
+        ("a string is not an object", "\"foo\"", false),
+        ("an object is an object", "{}", true),
+        ("an array is not an object", "[]", false),
+        ("a boolean is not an object", "true", false),
+        ("null is not an object", "null", false)])
+    run("type: array type matches arrays", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"array\"}", [("an integer is not an array", "1", false),
+        ("a float is not an array", "1.1", false),
+        ("a string is not an array", "\"foo\"", false),
+        ("an object is not an array", "{}", false),
+        ("an array is an array", "[]", true),
+        ("a boolean is not an array", "true", false),
+        ("null is not an array", "null", false)])
+    run("type: boolean type matches booleans", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"boolean\"}", [("an integer is not a boolean", "1", false),
+        ("zero is not a boolean", "0", false),
+        ("a float is not a boolean", "1.1", false),
+        ("a string is not a boolean", "\"foo\"", false),
+        ("an empty string is not a boolean", "\"\"", false),
+        ("an object is not a boolean", "{}", false),
+        ("an array is not a boolean", "[]", false),
+        ("true is a boolean", "true", true),
+        ("false is a boolean", "false", true),
+        ("null is not a boolean", "null", false)])
+    run("type: null type matches only the null object", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"null\"}", [("an integer is not null", "1", false),
+        ("a float is not null", "1.1", false),
+        ("zero is not null", "0", false),
+        ("a string is not null", "\"foo\"", false),
+        ("an empty string is not null", "\"\"", false),
+        ("an object is not null", "{}", false),
+        ("an array is not null", "[]", false),
+        ("true is not null", "true", false),
+        ("false is not null", "false", false),
+        ("null is null", "null", true)])
+    run("type: multiple types can be specified in an array", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":[\"integer\",\"string\"]}", [("an integer is valid", "1", true),
+        ("a string is valid", "\"foo\"", true),
+        ("a float is invalid", "1.1", false),
+        ("an object is invalid", "{}", false),
+        ("an array is invalid", "[]", false),
+        ("a boolean is invalid", "true", false),
+        ("null is invalid", "null", false)])
+    run("type: type as array with one item",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":[\"string\"]}",
+        [("string is valid", "\"foo\"", true), ("number is invalid", "123", false)])
+    run("type: type: array or object", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":[\"array\",\"object\"]}", [("array is valid", "[1,2,3]", true),
+        ("object is valid", "{\"foo\":123}", true),
+        ("number is invalid", "123", false),
+        ("string is invalid", "\"foo\"", false),
+        ("null is invalid", "null", false)])
+    run("type: type: array, object or null", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":[\"array\",\"object\",\"null\"]}", [("array is valid", "[1,2,3]", true),
+        ("object is valid", "{\"foo\":123}", true),
+        ("null is valid", "null", true),
+        ("number is invalid", "123", false),
+        ("string is invalid", "\"foo\"", false)])
+
+@test
+fn test_uniqueItems() [io]
+    run("uniqueItems: uniqueItems validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"uniqueItems\":true}", [("unique array of integers is valid", "[1,2]", true), ("non-unique array of integers is invalid", "[1,1]", false), ("non-unique array of more than two integers is invalid", "[1,2,1]", false), ("numbers are unique if mathematically unequal", "[1.0,1.0,1]", false), ("false is not equal to zero", "[0,false]", true), ("true is not equal to one", "[1,true]", true), ("unique array of strings is valid", "[\"foo\",\"bar\",\"baz\"]", true), ("non-unique array of strings is invalid", "[\"foo\",\"bar\",\"foo\"]", false), ("unique array of objects is valid", "[{\"foo\":\"bar\"},{\"foo\":\"baz\"}]", true), ("non-unique array of objects is invalid", "[{\"foo\":\"bar\"},{\"foo\":\"bar\"}]", false), ("property order of array of objects is ignored",
+        "[{\"foo\":\"bar\",\"bar\":\"foo\"},{\"bar\":\"foo\",\"foo\":\"bar\"}]",
+        false),
+    ("unique array of nested objects is valid",
+        "[{\"foo\":{\"bar\":{\"baz\":true}}},{\"foo\":{\"bar\":{\"baz\":false}}}]",
+        true),
+    ("non-unique array of nested objects is invalid",
+        "[{\"foo\":{\"bar\":{\"baz\":true}}},{\"foo\":{\"bar\":{\"baz\":true}}}]",
+        false),
+    ("unique array of arrays is valid", "[[\"foo\"],[\"bar\"]]", true), ("non-unique array of arrays is invalid", "[[\"foo\"],[\"foo\"]]", false), ("non-unique array of more than two arrays is invalid",
+        "[[\"foo\"],[\"bar\"],[\"foo\"]]",
+        false),
+    ("1 and true are unique", "[1,true]", true), ("0 and false are unique", "[0,false]", true), ("[1] and [true] are unique", "[[1],[true]]", true), ("[0] and [false] are unique", "[[0],[false]]", true), ("nested [1] and [true] are unique", "[[[1],\"foo\"],[[true],\"foo\"]]", true), ("nested [0] and [false] are unique", "[[[0],\"foo\"],[[false],\"foo\"]]", true), ("unique heterogeneous types are valid", "[{},[1],true,null,1,\"{}\"]", true), ("non-unique heterogeneous types are invalid", "[{},[1],true,null,{},1]", false), ("different objects are unique", "[{\"a\":1,\"b\":2},{\"a\":2,\"b\":1}]", true), ("objects are non-unique despite key order", "[{\"a\":1,\"b\":2},{\"b\":2,\"a\":1}]", false), ("{\"a\": false} and {\"a\": 0} are unique", "[{\"a\":false},{\"a\":0}]", true), ("{\"a\": true} and {\"a\": 1} are unique", "[{\"a\":true},{\"a\":1}]", true)])
+    run("uniqueItems: uniqueItems with an array of items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"boolean\"},{\"type\":\"boolean\"}],\"uniqueItems\":true}", [("[false, true] from items array is valid", "[false,true]", true), ("[true, false] from items array is valid", "[true,false]", true), ("[false, false] from items array is not valid", "[false,false]", false), ("[true, true] from items array is not valid", "[true,true]", false), ("unique array extended from [false, true] is valid", "[false,true,\"foo\",\"bar\"]", true), ("unique array extended from [true, false] is valid", "[true,false,\"foo\",\"bar\"]", true), ("non-unique array extended from [false, true] is not valid",
+        "[false,true,\"foo\",\"foo\"]",
+        false),
+    ("non-unique array extended from [true, false] is not valid",
+        "[true,false,\"foo\",\"foo\"]",
+        false)])
+    run("uniqueItems: uniqueItems with an array of items and additionalItems=false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"boolean\"},{\"type\":\"boolean\"}],\"uniqueItems\":true,\"items\":false}", [("[false, true] from items array is valid", "[false,true]", true),
+        ("[true, false] from items array is valid", "[true,false]", true),
+        ("[false, false] from items array is not valid", "[false,false]", false),
+        ("[true, true] from items array is not valid", "[true,true]", false),
+        ("extra items are invalid even if unique", "[false,true,null]", false)])
+    run("uniqueItems: uniqueItems=false validation", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"uniqueItems\":false}", [("unique array of integers is valid", "[1,2]", true), ("non-unique array of integers is valid", "[1,1]", true), ("numbers are unique if mathematically unequal", "[1.0,1.0,1]", true), ("false is not equal to zero", "[0,false]", true), ("true is not equal to one", "[1,true]", true), ("unique array of objects is valid", "[{\"foo\":\"bar\"},{\"foo\":\"baz\"}]", true), ("non-unique array of objects is valid", "[{\"foo\":\"bar\"},{\"foo\":\"bar\"}]", true), ("unique array of nested objects is valid",
+        "[{\"foo\":{\"bar\":{\"baz\":true}}},{\"foo\":{\"bar\":{\"baz\":false}}}]",
+        true),
+    ("non-unique array of nested objects is valid",
+        "[{\"foo\":{\"bar\":{\"baz\":true}}},{\"foo\":{\"bar\":{\"baz\":true}}}]",
+        true),
+    ("unique array of arrays is valid", "[[\"foo\"],[\"bar\"]]", true), ("non-unique array of arrays is valid", "[[\"foo\"],[\"foo\"]]", true), ("1 and true are unique", "[1,true]", true), ("0 and false are unique", "[0,false]", true), ("unique heterogeneous types are valid", "[{},[1],true,null,1]", true), ("non-unique heterogeneous types are valid", "[{},[1],true,null,{},1]", true)])
+    run("uniqueItems: uniqueItems=false with an array of items", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"boolean\"},{\"type\":\"boolean\"}],\"uniqueItems\":false}", [("[false, true] from items array is valid", "[false,true]", true),
+        ("[true, false] from items array is valid", "[true,false]", true),
+        ("[false, false] from items array is valid", "[false,false]", true),
+        ("[true, true] from items array is valid", "[true,true]", true),
+        ("unique array extended from [false, true] is valid", "[false,true,\"foo\",\"bar\"]", true),
+        ("unique array extended from [true, false] is valid", "[true,false,\"foo\",\"bar\"]", true),
+        ("non-unique array extended from [false, true] is valid", "[false,true,\"foo\",\"foo\"]", true),
+        ("non-unique array extended from [true, false] is valid", "[true,false,\"foo\",\"foo\"]", true)])
+    run("uniqueItems: uniqueItems=false with an array of items and additionalItems=false", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"boolean\"},{\"type\":\"boolean\"}],\"uniqueItems\":false,\"items\":false}", [("[false, true] from items array is valid", "[false,true]", true),
+        ("[true, false] from items array is valid", "[true,false]", true),
+        ("[false, false] from items array is valid", "[false,false]", true),
+        ("[true, true] from items array is valid", "[true,true]", true),
+        ("extra items are invalid even if unique", "[false,true,null]", false)])

@@ -1,0 +1,406 @@
+// suite_core_tests.nv — the JSON-Schema-Test-Suite's draft2020-12 files
+// for anchor, boolean_schema, defs, dynamicRef, infinite-loop-detection, ref, refRemote.
+//
+// Written by tools/suite.py; do not edit by hand.  Each test is one
+// file of the suite; each group compiles once against the suite's
+// remote documents, and each instance must get the suite's answer,
+// which Python's jsonschema was checked to give as well.
+
+use std.test
+use std.json
+use schcompile
+use schvalidate
+
+// The documents the suite serves at http://localhost:1234/, and the
+// 2020-12 meta-schemas, as one registry.
+fn remotes() -> SchRegistry
+    var r = schcompile.registry()
+    for (uri, text) in documents()
+        if let Some(d) = json.parse(text)
+            r = schcompile.with_document(r, uri, d)
+    r
+
+fn documents() -> [(Str, Str)]
+    [
+        ("http://localhost:1234/baseUriChange/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolder/folderInteger.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/detached-ref.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/draft2020-12/extendible-dynamic-ref.json",
+        "{\"description\":\"extendible array\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-false.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-false.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/format-assertion-true.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/format-assertion-true.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/format-assertion\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/format-assertion\"}]}"),
+        ("http://localhost:1234/draft2020-12/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/draft2020-12/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/metaschema-no-validation.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-no-validation.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/applicator\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"http://localhost:1234/draft/2020-12/vocab/custom\":false},\"\$dynamicAnchor\":\"meta\",\"allOf\":[{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/validation\"},{\"\$ref\":\"https://json-schema.org/draft/2020-12/meta/core\"}]}"),
+        ("http://localhost:1234/draft2020-12/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/draft2020-12/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/draft2020-12/the-nested-id.json\"}"),
+        ("http://localhost:1234/draft2020-12/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/draft2020-12/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"string\"}"),
+        ("http://localhost:1234/draft2020-12/prefixItems.json",
+        "{\"\$id\":\"http://localhost:1234/draft2020-12/prefixItems.json\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"string\"}]}"),
+        ("http://localhost:1234/draft2020-12/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/draft2020-12/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/draft2020-12/tree.json",
+        "{\"description\":\"tree schema, extensible\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/draft2020-12/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-2020-1200deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/integer.json", "{\"type\":\"integer\"}"),
+        ("http://localhost:1234/nested/foo-ref-string.json",
+        "{\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/nested/string.json", "{\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/baseUriChange/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolder/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/baseUriChangeFolderInSubschema/folderInteger.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/detached-dynamicref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-dynamicref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$dynamicRef\":\"#detached\"},\"detached\":{\"\$dynamicAnchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/detached-ref.json",
+        "{\"\$id\":\"http://localhost:1234/v1/detached-ref.json\",\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"foo\":{\"\$ref\":\"#detached\"},\"detached\":{\"\$anchor\":\"detached\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/different-id-ref-string.json",
+        "{\"\$id\":\"http://localhost:1234/v1/real-id-ref-string.json\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("http://localhost:1234/v1/extendible-dynamic-ref.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"extendible array\",\"\$id\":\"http://localhost:1234/v1/extendible-dynamic-ref.json\",\"type\":\"object\",\"properties\":{\"elements\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#elements\"}}},\"required\":[\"elements\"],\"additionalProperties\":false,\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\"}}}"),
+        ("http://localhost:1234/v1/integer.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"integer\"}"),
+        ("http://localhost:1234/v1/locationIndependentIdentifier.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"refToInteger\":{\"\$ref\":\"#foo\"},\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}"),
+        ("http://localhost:1234/v1/name-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"orNull\":{\"anyOf\":[{\"type\":\"null\"},{\"\$ref\":\"#\"}]}},\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/nested-absolute-ref-to-string.json",
+        "{\"\$defs\":{\"bar\":{\"\$id\":\"http://localhost:1234/v1/the-nested-id.json\",\"type\":\"string\"}},\"\$ref\":\"http://localhost:1234/v1/the-nested-id.json\"}"),
+        ("http://localhost:1234/v1/nested/foo-ref-string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"object\",\"properties\":{\"foo\":{\"\$ref\":\"string.json\"}}}"),
+        ("http://localhost:1234/v1/nested/string.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"type\":\"string\"}"),
+        ("http://localhost:1234/v1/ref-and-defs.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$id\":\"http://localhost:1234/v1/ref-and-defs.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}"),
+        ("http://localhost:1234/v1/subSchemas.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"\$defs\":{\"integer\":{\"type\":\"integer\"},\"refToInteger\":{\"\$ref\":\"#/\$defs/integer\"}}}"),
+        ("http://localhost:1234/v1/tree.json",
+        "{\"\$schema\":\"https://json-schema.org/v1\",\"description\":\"tree schema, extensible\",\"\$id\":\"http://localhost:1234/v1/tree.json\",\"\$dynamicAnchor\":\"node\",\"type\":\"object\",\"properties\":{\"data\":true,\"children\":{\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#node\"}}}}"),
+        ("http://localhost:1234/v1/urn-ref-string.json",
+        "{\"\$id\":\"urn:uuid:feebdaed-ffff-0000-ff01-0000deadbeef\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}"),
+        ("https://json-schema.org/draft/2020-12/schema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/schema\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true,\"https://json-schema.org/draft/2020-12/vocab/applicator\":true,\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true,\"https://json-schema.org/draft/2020-12/vocab/validation\":true,\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true,\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true,\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core and Validation specifications meta-schema\",\"allOf\":[{\"\$ref\":\"meta/core\"},{\"\$ref\":\"meta/applicator\"},{\"\$ref\":\"meta/unevaluated\"},{\"\$ref\":\"meta/validation\"},{\"\$ref\":\"meta/meta-data\"},{\"\$ref\":\"meta/format-annotation\"},{\"\$ref\":\"meta/content\"}],\"type\":[\"object\",\"boolean\"],\"\$comment\":\"This meta-schema also defines keywords that have appeared in previous drafts in order to prevent incompatible extensions as they remain in common use.\",\"properties\":{\"definitions\":{\"\$comment\":\"\\\"definitions\\\" has been replaced by \\\"\$defs\\\".\",\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"deprecated\":true,\"default\":{}},\"dependencies\":{\"\$comment\":\"\\\"dependencies\\\" has been split and replaced by \\\"dependentSchemas\\\" and \\\"dependentRequired\\\" in order to serve their differing semantics.\",\"type\":\"object\",\"additionalProperties\":{\"anyOf\":[{\"\$dynamicRef\":\"#meta\"},{\"\$ref\":\"meta/validation#/\$defs/stringArray\"}]},\"deprecated\":true,\"default\":{}},\"\$recursiveAnchor\":{\"\$comment\":\"\\\"\$recursiveAnchor\\\" has been replaced by \\\"\$dynamicAnchor\\\".\",\"\$ref\":\"meta/core#/\$defs/anchorString\",\"deprecated\":true},\"\$recursiveRef\":{\"\$comment\":\"\\\"\$recursiveRef\\\" has been replaced by \\\"\$dynamicRef\\\".\",\"\$ref\":\"meta/core#/\$defs/uriReferenceString\",\"deprecated\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/core",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/core\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/core\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Core vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"\$id\":{\"\$ref\":\"#/\$defs/uriReferenceString\",\"\$comment\":\"Non-empty fragments not allowed.\",\"pattern\":\"^[^#]*#?\$\"},\"\$schema\":{\"\$ref\":\"#/\$defs/uriString\"},\"\$ref\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$anchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$dynamicRef\":{\"\$ref\":\"#/\$defs/uriReferenceString\"},\"\$dynamicAnchor\":{\"\$ref\":\"#/\$defs/anchorString\"},\"\$vocabulary\":{\"type\":\"object\",\"propertyNames\":{\"\$ref\":\"#/\$defs/uriString\"},\"additionalProperties\":{\"type\":\"boolean\"}},\"\$comment\":{\"type\":\"string\"},\"\$defs\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"}}},\"\$defs\":{\"anchorString\":{\"type\":\"string\",\"pattern\":\"^[A-Za-z_][-A-Za-z0-9._]*\$\"},\"uriString\":{\"type\":\"string\",\"format\":\"uri\"},\"uriReferenceString\":{\"type\":\"string\",\"format\":\"uri-reference\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/applicator",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/applicator\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/applicator\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"prefixItems\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"items\":{\"\$dynamicRef\":\"#meta\"},\"contains\":{\"\$dynamicRef\":\"#meta\"},\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"properties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"patternProperties\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"propertyNames\":{\"format\":\"regex\"},\"default\":{}},\"dependentSchemas\":{\"type\":\"object\",\"additionalProperties\":{\"\$dynamicRef\":\"#meta\"},\"default\":{}},\"propertyNames\":{\"\$dynamicRef\":\"#meta\"},\"if\":{\"\$dynamicRef\":\"#meta\"},\"then\":{\"\$dynamicRef\":\"#meta\"},\"else\":{\"\$dynamicRef\":\"#meta\"},\"allOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"anyOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"oneOf\":{\"\$ref\":\"#/\$defs/schemaArray\"},\"not\":{\"\$dynamicRef\":\"#meta\"}},\"\$defs\":{\"schemaArray\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"\$dynamicRef\":\"#meta\"}}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/unevaluated",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/unevaluated\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/unevaluated\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Unevaluated applicator vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"unevaluatedItems\":{\"\$dynamicRef\":\"#meta\"},\"unevaluatedProperties\":{\"\$dynamicRef\":\"#meta\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/validation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/validation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/validation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Validation vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"type\":{\"anyOf\":[{\"\$ref\":\"#/\$defs/simpleTypes\"},{\"type\":\"array\",\"items\":{\"\$ref\":\"#/\$defs/simpleTypes\"},\"minItems\":1,\"uniqueItems\":true}]},\"const\":true,\"enum\":{\"type\":\"array\",\"items\":true},\"multipleOf\":{\"type\":\"number\",\"exclusiveMinimum\":0},\"maximum\":{\"type\":\"number\"},\"exclusiveMaximum\":{\"type\":\"number\"},\"minimum\":{\"type\":\"number\"},\"exclusiveMinimum\":{\"type\":\"number\"},\"maxLength\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minLength\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"pattern\":{\"type\":\"string\",\"format\":\"regex\"},\"maxItems\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minItems\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"uniqueItems\":{\"type\":\"boolean\",\"default\":false},\"maxContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minContains\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":1},\"maxProperties\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\"},\"minProperties\":{\"\$ref\":\"#/\$defs/nonNegativeIntegerDefault0\"},\"required\":{\"\$ref\":\"#/\$defs/stringArray\"},\"dependentRequired\":{\"type\":\"object\",\"additionalProperties\":{\"\$ref\":\"#/\$defs/stringArray\"}}},\"\$defs\":{\"nonNegativeInteger\":{\"type\":\"integer\",\"minimum\":0},\"nonNegativeIntegerDefault0\":{\"\$ref\":\"#/\$defs/nonNegativeInteger\",\"default\":0},\"simpleTypes\":{\"enum\":[\"array\",\"boolean\",\"integer\",\"null\",\"number\",\"object\",\"string\"]},\"stringArray\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"uniqueItems\":true,\"default\":[]}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/meta-data",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/meta-data\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/meta-data\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Meta-data vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"default\":true,\"deprecated\":{\"type\":\"boolean\",\"default\":false},\"readOnly\":{\"type\":\"boolean\",\"default\":false},\"writeOnly\":{\"type\":\"boolean\",\"default\":false},\"examples\":{\"type\":\"array\",\"items\":true}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/format-annotation",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/format-annotation\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/format-annotation\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Format vocabulary meta-schema for annotation results\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"format\":{\"type\":\"string\"}}}"),
+        ("https://json-schema.org/draft/2020-12/meta/content",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://json-schema.org/draft/2020-12/meta/content\",\"\$vocabulary\":{\"https://json-schema.org/draft/2020-12/vocab/content\":true},\"\$dynamicAnchor\":\"meta\",\"title\":\"Content vocabulary meta-schema\",\"type\":[\"object\",\"boolean\"],\"properties\":{\"contentEncoding\":{\"type\":\"string\"},\"contentMediaType\":{\"type\":\"string\"},\"contentSchema\":{\"\$dynamicRef\":\"#meta\"}}}")]
+
+// Compile a group's schema against the remotes, then check that every
+// instance gets the suite's answer from both the full validation and
+// the fast path.
+fn run(group: Str, schema: Str, cases: [(Str, Str, Bool)]) [io]
+    let reg = remotes()
+    match json.parse(schema)
+        None    =>
+            test.case(group)
+            test.assert(false)
+        Some(d) =>
+            match schcompile.compile_with(d, reg)
+                Err(f) =>
+                    test.case(group + ": " + f.message())
+                    test.assert(false)
+                Ok(s)  =>
+                    for (what, data, valid) in cases
+                        test.case(group + ": " + what)
+                        match json.parse(data)
+                            None    =>
+                                test.assert(false)
+                            Some(i) =>
+                                test.assert(schvalidate.validate(s, i).valid == valid)
+                                test.assert(schvalidate.is_valid(s, i) == valid)
+
+@test
+fn test_anchor() [io]
+    run("anchor: Location-independent identifier",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"#foo\",\"\$defs\":{\"A\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}",
+        [("match", "1", true), ("mismatch", "\"a\"", false)])
+    run("anchor: Location-independent identifier with absolute URI",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/bar#foo\",\"\$defs\":{\"A\":{\"\$id\":\"http://localhost:1234/draft2020-12/bar\",\"\$anchor\":\"foo\",\"type\":\"integer\"}}}",
+        [("match", "1", true), ("mismatch", "\"a\"", false)])
+    run("anchor: Location-independent identifier with base URI change in subschema",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/root\",\"\$ref\":\"http://localhost:1234/draft2020-12/nested.json#foo\",\"\$defs\":{\"A\":{\"\$id\":\"nested.json\",\"\$defs\":{\"B\":{\"\$anchor\":\"foo\",\"type\":\"integer\"}}}}}",
+        [("match", "1", true), ("mismatch", "\"a\"", false)])
+    run("anchor: same \$anchor with different base uri", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/foobar\",\"\$defs\":{\"A\":{\"\$id\":\"child1\",\"allOf\":[{\"\$id\":\"child2\",\"\$anchor\":\"my_anchor\",\"type\":\"number\"},{\"\$anchor\":\"my_anchor\",\"type\":\"string\"}]}},\"\$ref\":\"child1#my_anchor\"}", [("\$ref resolves to /\$defs/A/allOf/1", "\"a\"", true),
+        ("\$ref does not resolve to /\$defs/A/allOf/0", "1", false)])
+
+@test
+fn test_boolean_schema() [io]
+    run("boolean_schema: boolean schema 'true'", "true", [("number is valid", "1", true),
+        ("string is valid", "\"foo\"", true),
+        ("boolean true is valid", "true", true),
+        ("boolean false is valid", "false", true),
+        ("null is valid", "null", true),
+        ("object is valid", "{\"foo\":\"bar\"}", true),
+        ("empty object is valid", "{}", true),
+        ("array is valid", "[\"foo\"]", true),
+        ("empty array is valid", "[]", true)])
+    run("boolean_schema: boolean schema 'false'", "false", [("number is invalid", "1", false),
+        ("string is invalid", "\"foo\"", false),
+        ("boolean true is invalid", "true", false),
+        ("boolean false is invalid", "false", false),
+        ("null is invalid", "null", false),
+        ("object is invalid", "{\"foo\":\"bar\"}", false),
+        ("empty object is invalid", "{}", false),
+        ("array is invalid", "[\"foo\"]", false),
+        ("empty array is invalid", "[]", false)])
+
+@test
+fn test_defs() [io]
+    run("defs: validate definition against metaschema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"https://json-schema.org/draft/2020-12/schema\"}", [("valid definition schema", "{\"\$defs\":{\"foo\":{\"type\":\"integer\"}}}", true),
+        ("invalid definition schema", "{\"\$defs\":{\"foo\":{\"type\":1}}}", false)])
+
+@test
+fn test_dynamicRef() [io]
+    run("dynamicRef: A \$dynamicRef to a \$dynamicAnchor in the same schema resource behaves like a normal \$ref to an \$anchor", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamicRef-dynamicAnchor-same-schema/root\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"}}}", [("An array of strings is valid", "[\"foo\",\"bar\"]", true),
+        ("An array containing non-strings is invalid", "[\"foo\",42]", false)])
+    run("dynamicRef: A \$dynamicRef to an \$anchor in the same schema resource behaves like a normal \$ref to an \$anchor", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamicRef-anchor-same-schema/root\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"foo\":{\"\$anchor\":\"items\",\"type\":\"string\"}}}", [("An array of strings is valid", "[\"foo\",\"bar\"]", true),
+        ("An array containing non-strings is invalid", "[\"foo\",42]", false)])
+    run("dynamicRef: A \$ref to a \$dynamicAnchor in the same schema resource behaves like a normal \$ref to an \$anchor", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/ref-dynamicAnchor-same-schema/root\",\"type\":\"array\",\"items\":{\"\$ref\":\"#items\"},\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"}}}", [("An array of strings is valid", "[\"foo\",\"bar\"]", true),
+        ("An array containing non-strings is invalid", "[\"foo\",42]", false)])
+    run("dynamicRef: A \$dynamicRef resolves to the first \$dynamicAnchor still in scope that is encountered when the schema is evaluated", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/typical-dynamic-resolution/root\",\"\$ref\":\"list\",\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"},\"list\":{\"\$id\":\"list\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"items\":{\"\$comment\":\"This is only needed to satisfy the bookending requirement\",\"\$dynamicAnchor\":\"items\"}}}}}", [("An array of strings is valid", "[\"foo\",\"bar\"]", true),
+        ("An array containing non-strings is invalid", "[\"foo\",42]", false)])
+    run("dynamicRef: A \$dynamicRef without anchor in fragment behaves identical to \$ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamicRef-without-anchor/root\",\"\$ref\":\"list\",\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"},\"list\":{\"\$id\":\"list\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#/\$defs/items\"},\"\$defs\":{\"items\":{\"\$comment\":\"This is only needed to satisfy the bookending requirement\",\"\$dynamicAnchor\":\"items\",\"type\":\"number\"}}}}}", [("An array of strings is invalid", "[\"foo\",\"bar\"]", false),
+        ("An array of numbers is valid", "[24,42]", true)])
+    run("dynamicRef: A \$dynamicRef with intermediate scopes that don't include a matching \$dynamicAnchor does not affect dynamic scope resolution", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-resolution-with-intermediate-scopes/root\",\"\$ref\":\"intermediate-scope\",\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"},\"intermediate-scope\":{\"\$id\":\"intermediate-scope\",\"\$ref\":\"list\"},\"list\":{\"\$id\":\"list\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"items\":{\"\$comment\":\"This is only needed to satisfy the bookending requirement\",\"\$dynamicAnchor\":\"items\"}}}}}", [("An array of strings is valid", "[\"foo\",\"bar\"]", true),
+        ("An array containing non-strings is invalid", "[\"foo\",42]", false)])
+    run("dynamicRef: An \$anchor with the same name as a \$dynamicAnchor is not used for dynamic scope resolution",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-resolution-ignores-anchors/root\",\"\$ref\":\"list\",\"\$defs\":{\"foo\":{\"\$anchor\":\"items\",\"type\":\"string\"},\"list\":{\"\$id\":\"list\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"items\":{\"\$comment\":\"This is only needed to satisfy the bookending requirement\",\"\$dynamicAnchor\":\"items\"}}}}}",
+        [("Any array is valid", "[\"foo\",42]", true)])
+    run("dynamicRef: A \$dynamicRef without a matching \$dynamicAnchor in the same schema resource behaves like a normal \$ref to \$anchor",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-resolution-without-bookend/root\",\"\$ref\":\"list\",\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"},\"list\":{\"\$id\":\"list\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"items\":{\"\$comment\":\"This is only needed to give the reference somewhere to resolve to when it behaves like \$ref\",\"\$anchor\":\"items\"}}}}}",
+        [("Any array is valid", "[\"foo\",42]", true)])
+    run("dynamicRef: A \$dynamicRef with a non-matching \$dynamicAnchor in the same schema resource behaves like a normal \$ref to \$anchor",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/unmatched-dynamic-anchor/root\",\"\$ref\":\"list\",\"\$defs\":{\"foo\":{\"\$dynamicAnchor\":\"items\",\"type\":\"string\"},\"list\":{\"\$id\":\"list\",\"type\":\"array\",\"items\":{\"\$dynamicRef\":\"#items\"},\"\$defs\":{\"items\":{\"\$comment\":\"This is only needed to give the reference somewhere to resolve to when it behaves like \$ref\",\"\$anchor\":\"items\",\"\$dynamicAnchor\":\"foo\"}}}}}",
+        [("Any array is valid", "[\"foo\",42]", true)])
+    run("dynamicRef: A \$dynamicRef that initially resolves to a schema with a matching \$dynamicAnchor resolves to the first \$dynamicAnchor in the dynamic scope", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/relative-dynamic-reference/root\",\"\$dynamicAnchor\":\"meta\",\"type\":\"object\",\"properties\":{\"foo\":{\"const\":\"pass\"}},\"\$ref\":\"extended\",\"\$defs\":{\"extended\":{\"\$id\":\"extended\",\"\$dynamicAnchor\":\"meta\",\"type\":\"object\",\"properties\":{\"bar\":{\"\$ref\":\"bar\"}}},\"bar\":{\"\$id\":\"bar\",\"type\":\"object\",\"properties\":{\"baz\":{\"\$dynamicRef\":\"extended#meta\"}}}}}", [("The recursive part is valid against the root",
+        "{\"foo\":\"pass\",\"bar\":{\"baz\":{\"foo\":\"pass\"}}}",
+        true),
+    ("The recursive part is not valid against the root",
+        "{\"foo\":\"pass\",\"bar\":{\"baz\":{\"foo\":\"fail\"}}}",
+        false)])
+    run("dynamicRef: A \$dynamicRef that initially resolves to a schema without a matching \$dynamicAnchor behaves like a normal \$ref to \$anchor", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/relative-dynamic-reference-without-bookend/root\",\"\$dynamicAnchor\":\"meta\",\"type\":\"object\",\"properties\":{\"foo\":{\"const\":\"pass\"}},\"\$ref\":\"extended\",\"\$defs\":{\"extended\":{\"\$id\":\"extended\",\"\$anchor\":\"meta\",\"type\":\"object\",\"properties\":{\"bar\":{\"\$ref\":\"bar\"}}},\"bar\":{\"\$id\":\"bar\",\"type\":\"object\",\"properties\":{\"baz\":{\"\$dynamicRef\":\"extended#meta\"}}}}}", [("The recursive part doesn't need to validate against the root",
+        "{\"foo\":\"pass\",\"bar\":{\"baz\":{\"foo\":\"fail\"}}}",
+        true)])
+    run("dynamicRef: multiple dynamic paths to the \$dynamicRef keyword", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-ref-with-multiple-paths/main\",\"if\":{\"properties\":{\"kindOfList\":{\"const\":\"numbers\"}},\"required\":[\"kindOfList\"]},\"then\":{\"\$ref\":\"numberList\"},\"else\":{\"\$ref\":\"stringList\"},\"\$defs\":{\"genericList\":{\"\$id\":\"genericList\",\"properties\":{\"list\":{\"items\":{\"\$dynamicRef\":\"#itemType\"}}},\"\$defs\":{\"defaultItemType\":{\"\$comment\":\"Only needed to satisfy bookending requirement\",\"\$dynamicAnchor\":\"itemType\"}}},\"numberList\":{\"\$id\":\"numberList\",\"\$defs\":{\"itemType\":{\"\$dynamicAnchor\":\"itemType\",\"type\":\"number\"}},\"\$ref\":\"genericList\"},\"stringList\":{\"\$id\":\"stringList\",\"\$defs\":{\"itemType\":{\"\$dynamicAnchor\":\"itemType\",\"type\":\"string\"}},\"\$ref\":\"genericList\"}}}", [("number list with number values", "{\"kindOfList\":\"numbers\",\"list\":[1.1]}", true),
+        ("number list with string values", "{\"kindOfList\":\"numbers\",\"list\":[\"foo\"]}", false),
+        ("string list with number values", "{\"kindOfList\":\"strings\",\"list\":[1.1]}", false),
+        ("string list with string values", "{\"kindOfList\":\"strings\",\"list\":[\"foo\"]}", true)])
+    run("dynamicRef: after leaving a dynamic scope, it is not used by a \$dynamicRef", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-ref-leaving-dynamic-scope/main\",\"if\":{\"\$id\":\"first_scope\",\"\$defs\":{\"thingy\":{\"\$comment\":\"this is first_scope#thingy\",\"\$dynamicAnchor\":\"thingy\",\"type\":\"number\"}}},\"then\":{\"\$id\":\"second_scope\",\"\$ref\":\"start\",\"\$defs\":{\"thingy\":{\"\$comment\":\"this is second_scope#thingy, the final destination of the \$dynamicRef\",\"\$dynamicAnchor\":\"thingy\",\"type\":\"null\"}}},\"\$defs\":{\"start\":{\"\$comment\":\"this is the landing spot from \$ref\",\"\$id\":\"start\",\"\$dynamicRef\":\"inner_scope#thingy\"},\"thingy\":{\"\$comment\":\"this is the first stop for the \$dynamicRef\",\"\$id\":\"inner_scope\",\"\$dynamicAnchor\":\"thingy\",\"type\":\"string\"}}}", [("string matches /\$defs/thingy, but the \$dynamicRef does not stop here",
+        "\"a string\"",
+        false),
+    ("first_scope is not in dynamic scope for the \$dynamicRef", "42", false), ("/then/\$defs/thingy is the final stop for the \$dynamicRef", "null", true)])
+    run("dynamicRef: strict-tree schema, guards against misspelled properties", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/strict-tree.json\",\"\$dynamicAnchor\":\"node\",\"\$ref\":\"tree.json\",\"unevaluatedProperties\":false}", [("instance with misspelled field", "{\"children\":[{\"daat\":1}]}", false),
+        ("instance with correct field", "{\"children\":[{\"data\":1}]}", true)])
+    run("dynamicRef: tests for implementation dynamic anchor and reference link", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/strict-extendible.json\",\"\$ref\":\"extendible-dynamic-ref.json\",\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\",\"properties\":{\"a\":true},\"required\":[\"a\"],\"additionalProperties\":false}}}", [("incorrect parent schema", "{\"a\":true}", false),
+        ("incorrect extended schema", "{\"elements\":[{\"b\":1}]}", false),
+        ("correct extended schema", "{\"elements\":[{\"a\":1}]}", true)])
+    run("dynamicRef: \$ref and \$dynamicAnchor are independent of order - \$defs first", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/strict-extendible-allof-defs-first.json\",\"allOf\":[{\"\$ref\":\"extendible-dynamic-ref.json\"},{\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\",\"properties\":{\"a\":true},\"required\":[\"a\"],\"additionalProperties\":false}}}]}", [("incorrect parent schema", "{\"a\":true}", false),
+        ("incorrect extended schema", "{\"elements\":[{\"b\":1}]}", false),
+        ("correct extended schema", "{\"elements\":[{\"a\":1}]}", true)])
+    run("dynamicRef: \$ref and \$dynamicAnchor are independent of order - \$ref first", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/strict-extendible-allof-ref-first.json\",\"allOf\":[{\"\$defs\":{\"elements\":{\"\$dynamicAnchor\":\"elements\",\"properties\":{\"a\":true},\"required\":[\"a\"],\"additionalProperties\":false}}},{\"\$ref\":\"extendible-dynamic-ref.json\"}]}", [("incorrect parent schema", "{\"a\":true}", false),
+        ("incorrect extended schema", "{\"elements\":[{\"b\":1}]}", false),
+        ("correct extended schema", "{\"elements\":[{\"a\":1}]}", true)])
+    run("dynamicRef: \$ref to \$dynamicRef finds detached \$dynamicAnchor",
+        "{\"\$ref\":\"http://localhost:1234/draft2020-12/detached-dynamicref.json#/\$defs/foo\"}",
+        [("number is valid", "1", true), ("non-number is invalid", "\"a\"", false)])
+    run("dynamicRef: \$dynamicRef points to a boolean schema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"true\":true,\"false\":false},\"properties\":{\"true\":{\"\$dynamicRef\":\"#/\$defs/true\"},\"false\":{\"\$dynamicRef\":\"#/\$defs/false\"}}}", [("follow \$dynamicRef to a true schema", "{\"true\":1}", true),
+        ("follow \$dynamicRef to a false schema", "{\"false\":1}", false)])
+    run("dynamicRef: \$dynamicRef skips over intermediate resources - direct reference", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-ref-skips-intermediate-resource/main\",\"type\":\"object\",\"properties\":{\"bar-item\":{\"\$ref\":\"item\"}},\"\$defs\":{\"bar\":{\"\$id\":\"bar\",\"type\":\"array\",\"items\":{\"\$ref\":\"item\"},\"\$defs\":{\"item\":{\"\$id\":\"item\",\"type\":\"object\",\"properties\":{\"content\":{\"\$dynamicRef\":\"#content\"}},\"\$defs\":{\"defaultContent\":{\"\$dynamicAnchor\":\"content\",\"type\":\"integer\"}}},\"content\":{\"\$dynamicAnchor\":\"content\",\"type\":\"string\"}}}}}", [("integer property passes", "{\"bar-item\":{\"content\":42}}", true),
+        ("string property fails", "{\"bar-item\":{\"content\":\"value\"}}", false)])
+    run("dynamicRef: \$dynamicRef avoids the root of each schema, but scopes are still registered", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://test.json-schema.org/dynamic-ref-avoids-root-of-each-schema/base\",\"\$ref\":\"first#/\$defs/stuff\",\"\$defs\":{\"first\":{\"\$id\":\"first\",\"\$defs\":{\"stuff\":{\"\$ref\":\"second#/\$defs/stuff\"},\"length\":{\"\$comment\":\"unused, because there is no \$dynamicAnchor here\",\"maxLength\":1}}},\"second\":{\"\$id\":\"second\",\"\$defs\":{\"stuff\":{\"\$ref\":\"third#/\$defs/stuff\"},\"length\":{\"\$dynamicAnchor\":\"length\",\"maxLength\":2}}},\"third\":{\"\$id\":\"third\",\"\$defs\":{\"stuff\":{\"\$dynamicRef\":\"#length\"},\"length\":{\"\$dynamicAnchor\":\"length\",\"maxLength\":3}}}}}", [("data is sufficient for schema at second#/\$defs/length", "\"hi\"", true),
+        ("data is not sufficient for schema at second#/\$defs/length", "\"hey\"", false)])
+
+@test
+fn test_infinite_loop_detection() [io]
+    run("infinite-loop-detection: evaluating the same schema location against the same data location twice is not a sign of an infinite loop",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"int\":{\"type\":\"integer\"}},\"allOf\":[{\"properties\":{\"foo\":{\"\$ref\":\"#/\$defs/int\"}}},{\"additionalProperties\":{\"\$ref\":\"#/\$defs/int\"}}]}",
+        [("passing case", "{\"foo\":1}", true), ("failing case", "{\"foo\":\"a string\"}", false)])
+
+@test
+fn test_ref() [io]
+    run("ref: root pointer ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"\$ref\":\"#\"}},\"additionalProperties\":false}", [("match", "{\"foo\":false}", true),
+        ("recursive match", "{\"foo\":{\"foo\":false}}", true),
+        ("mismatch", "{\"bar\":false}", false),
+        ("recursive mismatch", "{\"foo\":{\"bar\":false}}", false)])
+    run("ref: relative pointer ref to object",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\":{\"type\":\"integer\"},\"bar\":{\"\$ref\":\"#/properties/foo\"}}}",
+        [("match", "{\"bar\":3}", true), ("mismatch", "{\"bar\":true}", false)])
+    run("ref: relative pointer ref to array",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"prefixItems\":[{\"type\":\"integer\"},{\"\$ref\":\"#/prefixItems/0\"}]}",
+        [("match array", "[1,2]", true), ("mismatch array", "[1,\"foo\"]", false)])
+    run("ref: escaped pointer ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"tilde~field\":{\"type\":\"integer\"},\"slash/field\":{\"type\":\"integer\"},\"percent%field\":{\"type\":\"integer\"}},\"properties\":{\"tilde\":{\"\$ref\":\"#/\$defs/tilde~0field\"},\"slash\":{\"\$ref\":\"#/\$defs/slash~1field\"},\"percent\":{\"\$ref\":\"#/\$defs/percent%25field\"}}}", [("slash invalid", "{\"slash\":\"aoeu\"}", false),
+        ("tilde invalid", "{\"tilde\":\"aoeu\"}", false),
+        ("percent invalid", "{\"percent\":\"aoeu\"}", false),
+        ("slash valid", "{\"slash\":123}", true),
+        ("tilde valid", "{\"tilde\":123}", true),
+        ("percent valid", "{\"percent\":123}", true)])
+    run("ref: nested refs",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"a\":{\"type\":\"integer\"},\"b\":{\"\$ref\":\"#/\$defs/a\"},\"c\":{\"\$ref\":\"#/\$defs/b\"}},\"\$ref\":\"#/\$defs/c\"}",
+        [("nested ref valid", "5", true), ("nested ref invalid", "\"a\"", false)])
+    run("ref: ref applies alongside sibling keywords", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"reffed\":{\"type\":\"array\"}},\"properties\":{\"foo\":{\"\$ref\":\"#/\$defs/reffed\",\"maxItems\":2}}}", [("ref valid, maxItems valid", "{\"foo\":[]}", true),
+        ("ref valid, maxItems invalid", "{\"foo\":[1,2,3]}", false),
+        ("ref invalid", "{\"foo\":\"string\"}", false)])
+    run("ref: remote ref, containing refs itself", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"https://json-schema.org/draft/2020-12/schema\"}", [("remote ref valid", "{\"minLength\":1}", true),
+        ("remote ref invalid", "{\"minLength\":-1}", false)])
+    run("ref: property named \$ref that is not a reference", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"\$ref\":{\"type\":\"string\"}}}", [("property named \$ref valid", "{\"\$ref\":\"a\"}", true),
+        ("property named \$ref invalid", "{\"\$ref\":2}", false)])
+    run("ref: property named \$ref, containing an actual \$ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"\$ref\":{\"\$ref\":\"#/\$defs/is-string\"}},\"\$defs\":{\"is-string\":{\"type\":\"string\"}}}", [("property named \$ref valid", "{\"\$ref\":\"a\"}", true),
+        ("property named \$ref invalid", "{\"\$ref\":2}", false)])
+    run("ref: \$ref to boolean schema true",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"#/\$defs/bool\",\"\$defs\":{\"bool\":true}}",
+        [("any value is valid", "\"foo\"", true)])
+    run("ref: \$ref to boolean schema false",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"#/\$defs/bool\",\"\$defs\":{\"bool\":false}}",
+        [("any value is invalid", "\"foo\"", false)])
+    run("ref: Recursive references between schemas", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/tree\",\"description\":\"tree of nodes\",\"type\":\"object\",\"properties\":{\"meta\":{\"type\":\"string\"},\"nodes\":{\"type\":\"array\",\"items\":{\"\$ref\":\"node\"}}},\"required\":[\"meta\",\"nodes\"],\"\$defs\":{\"node\":{\"\$id\":\"http://localhost:1234/draft2020-12/node\",\"description\":\"node\",\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"number\"},\"subtree\":{\"\$ref\":\"tree\"}},\"required\":[\"value\"]}}}", [("valid tree",
+        "{\"meta\":\"root\",\"nodes\":[{\"value\":1,\"subtree\":{\"meta\":\"child\",\"nodes\":[{\"value\":1.1},{\"value\":1.2}]}},{\"value\":2,\"subtree\":{\"meta\":\"child\",\"nodes\":[{\"value\":2.1},{\"value\":2.2}]}}]}",
+        true),
+    ("invalid tree",
+        "{\"meta\":\"root\",\"nodes\":[{\"value\":1,\"subtree\":{\"meta\":\"child\",\"nodes\":[{\"value\":\"string is invalid\"},{\"value\":1.2}]}},{\"value\":2,\"subtree\":{\"meta\":\"child\",\"nodes\":[{\"value\":2.1},{\"value\":2.2}]}}]}",
+        false)])
+    run("ref: refs with quote", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"foo\\\"bar\":{\"\$ref\":\"#/\$defs/foo%22bar\"}},\"\$defs\":{\"foo\\\"bar\":{\"type\":\"number\"}}}", [("object with numbers is valid", "{\"foo\\\"bar\":1}", true),
+        ("object with strings is invalid", "{\"foo\\\"bar\":\"1\"}", false)])
+    run("ref: ref creates new scope when adjacent to keywords",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"A\":{\"unevaluatedProperties\":false}},\"properties\":{\"prop1\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/A\"}",
+        [("referenced subschema doesn't see annotations from properties", "{\"prop1\":\"match\"}", false)])
+    run("ref: naive replacement of \$ref with its destination is not correct", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"a_string\":{\"type\":\"string\"}},\"enum\":[{\"\$ref\":\"#/\$defs/a_string\"}]}", [("do not evaluate the \$ref inside the enum, matching any string",
+        "\"this is a string\"",
+        false),
+    ("do not evaluate the \$ref inside the enum, definition exact match",
+        "{\"type\":\"string\"}",
+        false),
+    ("match the enum exactly", "{\"\$ref\":\"#/\$defs/a_string\"}", true)])
+    run("ref: refs with relative uris and defs", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://example.com/schema-relative-uri-defs1.json\",\"properties\":{\"foo\":{\"\$id\":\"schema-relative-uri-defs2.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}},\"\$ref\":\"schema-relative-uri-defs2.json\"}", [("invalid on inner field", "{\"foo\":{\"bar\":1},\"bar\":\"a\"}", false),
+        ("invalid on outer field", "{\"foo\":{\"bar\":\"a\"},\"bar\":1}", false),
+        ("valid on both fields", "{\"foo\":{\"bar\":\"a\"},\"bar\":\"a\"}", true)])
+    run("ref: relative refs with absolute uris and defs", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://example.com/schema-refs-absolute-uris-defs1.json\",\"properties\":{\"foo\":{\"\$id\":\"http://example.com/schema-refs-absolute-uris-defs2.json\",\"\$defs\":{\"inner\":{\"properties\":{\"bar\":{\"type\":\"string\"}}}},\"\$ref\":\"#/\$defs/inner\"}},\"\$ref\":\"schema-refs-absolute-uris-defs2.json\"}", [("invalid on inner field", "{\"foo\":{\"bar\":1},\"bar\":\"a\"}", false),
+        ("invalid on outer field", "{\"foo\":{\"bar\":\"a\"},\"bar\":1}", false),
+        ("valid on both fields", "{\"foo\":{\"bar\":\"a\"},\"bar\":\"a\"}", true)])
+    run("ref: \$id must be resolved against nearest parent, not just immediate parent",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://example.com/a.json\",\"\$defs\":{\"x\":{\"\$id\":\"http://example.com/b/c.json\",\"not\":{\"\$defs\":{\"y\":{\"\$id\":\"d.json\",\"type\":\"number\"}}}}},\"allOf\":[{\"\$ref\":\"http://example.com/b/d.json\"}]}",
+        [("number is valid", "1", true), ("non-number is invalid", "\"a\"", false)])
+    run("ref: order of evaluation: \$id and \$ref", "{\"\$comment\":\"\$id must be evaluated before \$ref to get the proper \$ref destination\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://example.com/draft2020-12/ref-and-id1/base.json\",\"\$ref\":\"int.json\",\"\$defs\":{\"bigint\":{\"\$comment\":\"canonical uri: https://example.com/ref-and-id1/int.json\",\"\$id\":\"int.json\",\"maximum\":10},\"smallint\":{\"\$comment\":\"canonical uri: https://example.com/ref-and-id1-int.json\",\"\$id\":\"/draft2020-12/ref-and-id1-int.json\",\"maximum\":2}}}", [("data is valid against first definition", "5", true),
+        ("data is invalid against first definition", "50", false)])
+    run("ref: order of evaluation: \$id and \$anchor and \$ref", "{\"\$comment\":\"\$id must be evaluated before \$ref to get the proper \$ref destination\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://example.com/draft2020-12/ref-and-id2/base.json\",\"\$ref\":\"#bigint\",\"\$defs\":{\"bigint\":{\"\$comment\":\"canonical uri: /ref-and-id2/base.json#/\$defs/bigint; another valid uri for this location: /ref-and-id2/base.json#bigint\",\"\$anchor\":\"bigint\",\"maximum\":10},\"smallint\":{\"\$comment\":\"canonical uri: https://example.com/ref-and-id2#/\$defs/smallint; another valid uri for this location: https://example.com/ref-and-id2/#bigint\",\"\$id\":\"https://example.com/draft2020-12/ref-and-id2/\",\"\$anchor\":\"bigint\",\"maximum\":2}}}", [("data is valid against first definition", "5", true),
+        ("data is invalid against first definition", "50", false)])
+    run("ref: order of evaluation: \$id and \$ref on nested schema", "{\"\$comment\":\"\$id must be evaluated before \$ref to get the proper \$ref destination\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"https://example.com/draft2020-12/ref-and-id3/base.json\",\"\$ref\":\"nested/foo.json\",\"\$defs\":{\"foo\":{\"\$comment\":\"canonical uri: https://example.com/draft2020-12/ref-and-id3/nested/foo.json\",\"\$id\":\"nested/foo.json\",\"\$ref\":\"./bar.json\"},\"bar\":{\"\$comment\":\"canonical uri: https://example.com/draft2020-12/ref-and-id3/nested/bar.json\",\"\$id\":\"nested/bar.json\",\"type\":\"number\"}}}", [("data is valid against nested sibling", "5", true),
+        ("data is invalid against nested sibling", "\"a\"", false)])
+    run("ref: simple URN base URI with \$ref via the URN", "{\"\$comment\":\"URIs do not have to have HTTP(s) schemes\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:uuid:deadbeef-1234-ffff-ffff-4321feebdaed\",\"minimum\":30,\"properties\":{\"foo\":{\"\$ref\":\"urn:uuid:deadbeef-1234-ffff-ffff-4321feebdaed\"}}}", [("valid under the URN IDed schema", "{\"foo\":37}", true),
+        ("invalid under the URN IDed schema", "{\"foo\":12}", false)])
+    run("ref: simple URN base URI with JSON pointer", "{\"\$comment\":\"URIs do not have to have HTTP(s) schemes\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:uuid:deadbeef-1234-00ff-ff00-4321feebdaed\",\"properties\":{\"foo\":{\"\$ref\":\"#/\$defs/bar\"}},\"\$defs\":{\"bar\":{\"type\":\"string\"}}}", [("a string is valid", "{\"foo\":\"bar\"}", true),
+        ("a non-string is invalid", "{\"foo\":12}", false)])
+    run("ref: URN base URI with NSS", "{\"\$comment\":\"RFC 8141 §2.2\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:example:1/406/47452/2\",\"properties\":{\"foo\":{\"\$ref\":\"#/\$defs/bar\"}},\"\$defs\":{\"bar\":{\"type\":\"string\"}}}", [("a string is valid", "{\"foo\":\"bar\"}", true),
+        ("a non-string is invalid", "{\"foo\":12}", false)])
+    run("ref: URN base URI with r-component", "{\"\$comment\":\"RFC 8141 §2.3.1\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:example:foo-bar-baz-qux?+CCResolve:cc=uk\",\"properties\":{\"foo\":{\"\$ref\":\"#/\$defs/bar\"}},\"\$defs\":{\"bar\":{\"type\":\"string\"}}}", [("a string is valid", "{\"foo\":\"bar\"}", true),
+        ("a non-string is invalid", "{\"foo\":12}", false)])
+    run("ref: URN base URI with q-component", "{\"\$comment\":\"RFC 8141 §2.3.2\",\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z\",\"properties\":{\"foo\":{\"\$ref\":\"#/\$defs/bar\"}},\"\$defs\":{\"bar\":{\"type\":\"string\"}}}", [("a string is valid", "{\"foo\":\"bar\"}", true),
+        ("a non-string is invalid", "{\"foo\":12}", false)])
+    run("ref: URN base URI with URN and JSON pointer ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:uuid:deadbeef-1234-0000-0000-4321feebdaed\",\"properties\":{\"foo\":{\"\$ref\":\"urn:uuid:deadbeef-1234-0000-0000-4321feebdaed#/\$defs/bar\"}},\"\$defs\":{\"bar\":{\"type\":\"string\"}}}", [("a string is valid", "{\"foo\":\"bar\"}", true),
+        ("a non-string is invalid", "{\"foo\":12}", false)])
+    run("ref: URN base URI with URN and anchor ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"urn:uuid:deadbeef-1234-ff00-00ff-4321feebdaed\",\"properties\":{\"foo\":{\"\$ref\":\"urn:uuid:deadbeef-1234-ff00-00ff-4321feebdaed#something\"}},\"\$defs\":{\"bar\":{\"\$anchor\":\"something\",\"type\":\"string\"}}}", [("a string is valid", "{\"foo\":\"bar\"}", true),
+        ("a non-string is invalid", "{\"foo\":12}", false)])
+    run("ref: URN ref with nested pointer ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"urn:uuid:deadbeef-4321-ffff-ffff-1234feebdaed\",\"\$defs\":{\"foo\":{\"\$id\":\"urn:uuid:deadbeef-4321-ffff-ffff-1234feebdaed\",\"\$defs\":{\"bar\":{\"type\":\"string\"}},\"\$ref\":\"#/\$defs/bar\"}}}",
+        [("a string is valid", "\"bar\"", true), ("a non-string is invalid", "12", false)])
+    run("ref: ref to if", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://example.com/ref/if\",\"if\":{\"\$id\":\"http://example.com/ref/if\",\"type\":\"integer\"}}", [("a non-integer is invalid due to the \$ref", "\"foo\"", false),
+        ("an integer is valid", "12", true)])
+    run("ref: ref to then", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://example.com/ref/then\",\"then\":{\"\$id\":\"http://example.com/ref/then\",\"type\":\"integer\"}}", [("a non-integer is invalid due to the \$ref", "\"foo\"", false),
+        ("an integer is valid", "12", true)])
+    run("ref: ref to else", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://example.com/ref/else\",\"else\":{\"\$id\":\"http://example.com/ref/else\",\"type\":\"integer\"}}", [("a non-integer is invalid due to the \$ref", "\"foo\"", false),
+        ("an integer is valid", "12", true)])
+    run("ref: ref with absolute-path-reference",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://example.com/ref/absref.json\",\"\$defs\":{\"a\":{\"\$id\":\"http://example.com/ref/absref/foobar.json\",\"type\":\"number\"},\"b\":{\"\$id\":\"http://example.com/absref/foobar.json\",\"type\":\"string\"}},\"\$ref\":\"/absref/foobar.json\"}",
+        [("a string is valid", "\"foo\"", true), ("an integer is invalid", "12", false)])
+    run("ref: \$id with file URI still resolves pointers - *nix",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"file:///folder/file.json\",\"\$defs\":{\"foo\":{\"type\":\"number\"}},\"\$ref\":\"#/\$defs/foo\"}",
+        [("number is valid", "1", true), ("non-number is invalid", "\"a\"", false)])
+    run("ref: \$id with file URI still resolves pointers - windows",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"file:///c:/folder/file.json\",\"\$defs\":{\"foo\":{\"type\":\"number\"}},\"\$ref\":\"#/\$defs/foo\"}",
+        [("number is valid", "1", true), ("non-number is invalid", "\"a\"", false)])
+    run("ref: empty tokens in \$ref json-pointer",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$defs\":{\"\":{\"\$defs\":{\"\":{\"type\":\"number\"}}}},\"allOf\":[{\"\$ref\":\"#/\$defs//\$defs/\"}]}",
+        [("number is valid", "1", true), ("non-number is invalid", "\"a\"", false)])
+
+@test
+fn test_refRemote() [io]
+    run("refRemote: remote ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/integer.json\"}",
+        [("remote ref valid", "1", true), ("remote ref invalid", "\"a\"", false)])
+    run("refRemote: fragment within remote ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/subSchemas.json#/\$defs/integer\"}",
+        [("remote fragment valid", "1", true), ("remote fragment invalid", "\"a\"", false)])
+    run("refRemote: anchor within remote ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/locationIndependentIdentifier.json#foo\"}",
+        [("remote anchor valid", "1", true), ("remote anchor invalid", "\"a\"", false)])
+    run("refRemote: ref within remote ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/subSchemas.json#/\$defs/refToInteger\"}",
+        [("ref within ref valid", "1", true), ("ref within ref invalid", "\"a\"", false)])
+    run("refRemote: base URI change", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/\",\"items\":{\"\$id\":\"baseUriChange/\",\"items\":{\"\$ref\":\"folderInteger.json\"}}}", [("base URI change ref valid", "[[1]]", true),
+        ("base URI change ref invalid", "[[\"a\"]]", false)])
+    run("refRemote: base URI change - change folder", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/scope_change_defs1.json\",\"type\":\"object\",\"properties\":{\"list\":{\"\$ref\":\"baseUriChangeFolder/\"}},\"\$defs\":{\"baz\":{\"\$id\":\"baseUriChangeFolder/\",\"type\":\"array\",\"items\":{\"\$ref\":\"folderInteger.json\"}}}}", [("number is valid", "{\"list\":[1]}", true),
+        ("string is invalid", "{\"list\":[\"a\"]}", false)])
+    run("refRemote: base URI change - change folder in subschema", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/scope_change_defs2.json\",\"type\":\"object\",\"properties\":{\"list\":{\"\$ref\":\"baseUriChangeFolderInSubschema/#/\$defs/bar\"}},\"\$defs\":{\"baz\":{\"\$id\":\"baseUriChangeFolderInSubschema/\",\"\$defs\":{\"bar\":{\"type\":\"array\",\"items\":{\"\$ref\":\"folderInteger.json\"}}}}}}", [("number is valid", "{\"list\":[1]}", true),
+        ("string is invalid", "{\"list\":[\"a\"]}", false)])
+    run("refRemote: root ref in remote ref", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/object\",\"type\":\"object\",\"properties\":{\"name\":{\"\$ref\":\"name-defs.json#/\$defs/orNull\"}}}", [("string is valid", "{\"name\":\"foo\"}", true),
+        ("null is valid", "{\"name\":null}", true),
+        ("object is invalid", "{\"name\":{\"name\":null}}", false)])
+    run("refRemote: remote ref with ref to defs",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/schema-remote-ref-ref-defs1.json\",\"\$ref\":\"ref-and-defs.json\"}",
+        [("invalid", "{\"bar\":1}", false), ("valid", "{\"bar\":\"a\"}", true)])
+    run("refRemote: Location-independent identifier in remote ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/locationIndependentIdentifier.json#/\$defs/refToInteger\"}",
+        [("integer is valid", "1", true), ("string is invalid", "\"foo\"", false)])
+    run("refRemote: retrieved nested refs resolve relative to their URI not \$id", "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$id\":\"http://localhost:1234/draft2020-12/some-id\",\"properties\":{\"name\":{\"\$ref\":\"nested/foo-ref-string.json\"}}}", [("number is invalid", "{\"name\":{\"foo\":1}}", false),
+        ("string is valid", "{\"name\":{\"foo\":\"a\"}}", true)])
+    run("refRemote: remote HTTP ref with different \$id",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/different-id-ref-string.json\"}",
+        [("number is invalid", "1", false), ("string is valid", "\"foo\"", true)])
+    run("refRemote: remote HTTP ref with different URN \$id",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/urn-ref-string.json\"}",
+        [("number is invalid", "1", false), ("string is valid", "\"foo\"", true)])
+    run("refRemote: remote HTTP ref with nested absolute ref",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json\"}",
+        [("number is invalid", "1", false), ("string is valid", "\"foo\"", true)])
+    run("refRemote: \$ref to \$ref finds detached \$anchor",
+        "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"\$ref\":\"http://localhost:1234/draft2020-12/detached-ref.json#/\$defs/foo\"}",
+        [("number is valid", "1", true), ("non-number is invalid", "\"a\"", false)])
