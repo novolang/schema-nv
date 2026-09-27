@@ -1,23 +1,11 @@
-// schcompile_tests.nv — the API suite for compiling a schema, the
-// registry its `$ref`s reach, and the vocabulary scope.
+// schcompile_tests.nv — compiling a schema, the registry its `$ref`s
+// reach, and the vocabulary scope.
 //
-// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
-// assertion here reaches `not implemented: schema-nv.<module>.<fn>`.
-//
-// THE CASES ARE THE SHAPE OF THE JSON-Schema-Test-Suite.  That suite —
-// `tests/draft2020-12/*.json` — is a list of `{schema, tests: [{data,
-// valid}]}` groups, one file per keyword, and it is the oracle every
-// validator is measured against.  The schemas below are drawn from it
-// and from the specification's own examples, and the whole suite
-// becomes a generated run beside this one when the implementation
-// lands: a group's schema compiles once and each `data` is validated
-// against it.
-//
-// THE COMPILE CASES ARE THE HALF THE SUITE DOES NOT COVER.  It tests
-// what a valid schema means; it does not test what happens to a schema
-// that is not one, because every implementation answers differently.
-// This package answers with a `SchFault` naming a JSON Pointer, and
-// these are the assertions that keep that true.
+// The JSON-Schema-Test-Suite, in the suite_*_tests.nv files, tests
+// what a valid schema means.  It does not test what happens to a
+// schema that is not one; this package answers with a `SchFault`
+// naming a JSON Pointer, and these cases and schfault_tests.nv keep
+// that true.
 
 use std.test
 use std.list
@@ -203,8 +191,8 @@ fn test_the_vocabulary_scope_is_a_list_a_program_can_read() [io]
     test.case("the seven types")
     test.assert(list.len(schvocab.type_names()) == 7)
 
-    test.case("a required vocabulary this package cannot honour is refused")
-    let vocab = "https://json-schema.org/draft/2020-12/vocab/content"
+    test.case("a required vocabulary this package does not recognise is refused")
+    let vocab = "https://example.com/vocab/custom"
     let s = "{\"\$schema\":\"${schvocab.DIALECT_2020_12}\",\"\$vocabulary\":{\"${vocab}\":true}}"
     test.assert(list.len(schcompile.unsupported_vocabularies(doc(s))) == 1)
     test.assert(refused(s) == Some(SchUnsupportedVocabulary))

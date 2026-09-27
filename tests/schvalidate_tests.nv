@@ -1,22 +1,11 @@
-// schvalidate_tests.nv — the API suite for validating an instance, the
-// reasons it did not match, and the format registry.
+// schvalidate_tests.nv — validating an instance, the reasons it did
+// not match, and the format registry.
 //
-// RED ON PURPOSE: every body under `src/` is a `todo()`, so every
-// assertion here reaches `not implemented: schema-nv.<module>.<fn>`.
-//
-// THE CASES ARE THE JSON-Schema-Test-Suite's SHAPE.  That suite is a
-// list of `{schema, tests: [{data, valid}]}` groups, one file per
-// keyword, and it is the oracle every validator is measured against.
-// Each test below is one such group written out, so the generated run
-// that replaces them when the implementation lands is the same
-// assertions with more of them.
-//
-// THE OUTPUT CASES ARE THIS PACKAGE'S OWN CLAIM.  The suite only
-// records whether an instance was valid; it says nothing about what a
-// validator should SAY when it was not.  "Validation with reasons" is
-// the package's row on the grid, so the reasons — three locations and a
-// keyword on every failure, all of them rather than the first — are
-// what the middle tests here pin down.
+// Each test is a group in the JSON-Schema-Test-Suite's shape, and the
+// suite itself runs in the suite_*_tests.nv files.  The suite records
+// only whether an instance was valid, so the assertions about the
+// reasons, three locations and a keyword on every failure, all of them
+// rather than the first, are this package's own claim.
 
 use std.test
 use std.list
@@ -37,8 +26,7 @@ fn compiled(text: Str) -> schcompile.SchSchema [io]
         Ok(s)  => s
         Err(_) =>
             test.assert(false)
-            SchSchema { id: "", keyword_count: 0, uses_unevaluated: false,
-                        uses_dynamic_ref: false }
+            compiled("false")
 
 fn check(schema: Str, instance: Str) -> schvalidate.SchOutput [io]
     schvalidate.validate(compiled(schema), doc(instance))
@@ -259,7 +247,6 @@ fn test_format_is_an_annotation_until_somebody_says_otherwise() [io]
     test.assert(schformat.formats().count == 0)
     test.assert(schformat.formats().has_builtins == false)
 
-// The five-line email check nobody's is right — here because a test
-// needs a registered format and not because it is one worth shipping.
+// A registered format for the tests, not a check of email addresses.
 fn has_an_at(s: Str) -> Bool
     str.contains(s, "@")

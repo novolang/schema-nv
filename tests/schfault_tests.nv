@@ -1,0 +1,276 @@
+// schfault_tests.nv — every fault a compile can answer, the URI rules
+// references resolve by, and the parts of the output the suites do not
+// read.
+//
+// The JSON-Schema-Test-Suite says what a valid schema means; it does
+// not test what happens to a schema that is not one.  These cases give
+// each `SchFaultKind` a schema that earns it, at the JSON Pointer it
+// names.
+
+use std.test
+use std.list
+use std.json
+use schcompile
+use scherror
+use schformat
+use schvalidate
+use schvocab
+
+fn doc(text: Str) -> JsonValueH [io]
+    match json.parse(text)
+        Some(v) => v
+        None    =>
+            test.assert(false)
+            json.null()
+
+// The fault a schema is refused with, or `None`.
+fn fault(text: Str) -> ?SchFault [io]
+    match schcompile.compile(doc(text))
+        Ok(_)  => None
+        Err(f) => Some(f)
+
+// The kind and the pointer of the fault a schema is refused with.
+fn refused(text: Str, kind: SchFaultKind, at: Str) [io]
+    test.case(text)
+    match fault(text)
+        None    => test.assert(false)
+        Some(f) =>
+            test.assert(f.kind == kind)
+            test.assert(f.schema_location == at)
+
+fn compiled(text: Str) -> SchSchema [io]
+    match schcompile.compile(doc(text))
+        Ok(s)  => s
+        Err(_) =>
+            test.assert(false)
+            compiled("true")
+
+@test
+fn test_each_keyword_s_shape_is_checked() [io]
+    refused("{\"properties\":[]}", SchBadKeywordValue, "/properties")
+    refused("{\"allOf\":[]}", SchBadKeywordValue, "/allOf")
+    refused("{\"anyOf\":{}}", SchBadKeywordValue, "/anyOf")
+    refused("{\"items\":3}", SchNotASchema, "/items")
+    refused("{\"enum\":3}", SchBadKeywordValue, "/enum")
+    refused("{\"required\":[1]}", SchBadKeywordValue, "/required")
+    refused("{\"multipleOf\":0}", SchBadKeywordValue, "/multipleOf")
+    refused("{\"multipleOf\":\"2\"}", SchBadKeywordValue, "/multipleOf")
+    refused("{\"maximum\":\"1\"}", SchBadKeywordValue, "/maximum")
+    refused("{\"minLength\":-1}", SchBadKeywordValue, "/minLength")
+    refused("{\"maxItems\":1.5}", SchBadKeywordValue, "/maxItems")
+    refused("{\"minProperties\":\"1\"}", SchBadKeywordValue, "/minProperties")
+    refused("{\"uniqueItems\":1}", SchBadKeywordValue, "/uniqueItems")
+    refused("{\"pattern\":1}", SchBadKeywordValue, "/pattern")
+    refused("{\"format\":1}", SchBadKeywordValue, "/format")
+    refused("{\"dependentRequired\":{\"a\":\"b\"}}", SchBadKeywordValue, "/dependentRequired")
+    refused("{\"dependentRequired\":3}", SchBadKeywordValue, "/dependentRequired")
+    refused("{\"type\":[]}", SchBadKeywordValue, "/type")
+    refused("{\"type\":[\"string\",\"text\"]}", SchUnknownType, "/type")
+    refused("{\"patternProperties\":{\"(\":true}}", SchBadPattern, "/patternProperties/(")
+    refused("{\"pattern\":\"a(?=b)\"}", SchBadPattern, "/pattern")
+    refused("{\"\$defs\":{\"a~b/c\":{\"type\":1}}}", SchBadKeywordValue, "/\$defs/a~0b~1c/type")
+
+@test
+fn test_identifiers_anchors_and_references_are_checked() [io]
+    refused("{\"\$id\":3}", SchBadKeywordValue, "/\$id")
+    refused("{\"\$id\":\"https://x/s#frag\"}", SchBadId, "/\$id")
+    refused("{\"\$defs\":{\"a\":{\"\$id\":\"https://x/a\"},\"b\":{\"\$id\":\"https://x/a\"}}}",
+        SchBadId,
+        "/\$defs/b")
+    refused("{\"\$anchor\":3}", SchBadAnchor, "/\$anchor")
+    refused("{\"\$anchor\":\"1abc\"}", SchBadAnchor, "/\$anchor")
+    refused("{\"\$anchor\":\"\"}", SchBadAnchor, "/\$anchor")
+    refused("{\"\$defs\":{\"a\":{\"\$anchor\":\"x\"},\"b\":{\"\$anchor\":\"x\"}}}",
+        SchBadAnchor,
+        "/\$defs/b")
+    refused("{\"\$ref\":3}", SchBadKeywordValue, "/\$ref")
+    refused("{\"\$ref\":\"a b\"}", SchBadRef, "/\$ref")
+    refused("{\"\$dynamicRef\":\"#{x}\"}", SchBadRef, "/\$dynamicRef")
+    refused("{\"\$ref\":\"#nowhere\"}", SchUnresolvedRef, "/\$ref")
+    refused("{\"\$ref\":\"#/\$defs/missing\"}", SchUnresolvedRef, "/\$ref")
+    refused("{\"\$ref\":\"#/0\"}", SchUnresolvedRef, "/\$ref")
+
+    test.case("a dynamic anchor is an anchor too, and a reference to it resolves")
+    test.assert(fault("{\"\$defs\":{\"a\":{\"\$dynamicAnchor\":\"x\"}},\"\$ref\":\"#x\"}") == None)
+
+    test.case("an absolute location names the resource")
+    match fault("{\"\$id\":\"https://x/s\",\"properties\":{\"a\":{\"type\":1}}}")
+        Some(f) => test.assert(f.absolute_location == "https://x/s#/properties/a/type")
+        None    => test.assert(false)
+
+@test
+fn test_cycles_dialects_vocabularies_and_depth() [io]
+    test.case("a cycle two references long")
+    refused("{\"\$defs\":{\"a\":{\"\$ref\":\"#/\$defs/b\"},\"b\":{\"allOf\":[{\"\$ref\":\"#/\$defs/a\"}]}},\"\$ref\":\"#/\$defs/a\"}",
+            SchRefCycle, "/\$defs/a")
+    test.case("and one through not and dependentSchemas")
+    test.assert(fault("{\"not\":{\"\$ref\":\"#\"}}") != None)
+    test.assert(fault("{\"dependentSchemas\":{\"a\":{\"\$ref\":\"#\"}}}") != None)
+
+    test.case("a vocabulary entry must be a boolean")
+    refused("{\"\$vocabulary\":{\"https://x/v\":1}}", SchBadKeywordValue, "/\$vocabulary/https:~1~1x~1v")
+    refused("{\"\$vocabulary\":[]}", SchBadKeywordValue, "/\$vocabulary")
+    test.case("and one this package recognises is not refused, whether it asserts it or not")
+    let known = "{\"\$vocabulary\":{\"${schvocab.vocabulary_uri(SchVocabContent)}\":true,\"https://x/v\":false}}"
+    test.assert(fault(known) == None)
+
+    test.case("a default dialect other than 2020-12 is refused for a schema with no \$schema")
+    var old = schcompile.default_options()
+    old.default_dialect = "http://json-schema.org/draft-07/schema#"
+    match schcompile.compile_with_options(doc("{}"), schcompile.registry(), old)
+        Ok(_)  => test.assert(false)
+        Err(f) => test.assert(f.kind == SchUnknownDialect)
+    test.assert(fault("{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema#\"}") == None)
+
+    test.case("nesting past the bound")
+    var shallow = schcompile.default_options()
+    shallow.max_depth = 2
+    match schcompile.compile_with_options(doc("{\"items\":{\"items\":{\"items\":{}}}}"), schcompile.registry(), shallow)
+        Ok(_)  => test.assert(false)
+        Err(f) =>
+            test.assert(f.kind == SchDepthLimit)
+            test.assert(f.schema_location == "/items/items/items")
+
+    test.case("a fault in a registered document is reported only when a reference reaches it")
+    let bad = schcompile.with_document(schcompile.registry(), "https://x/bad", doc("{\"type\":3}"))
+    test.assert(list.len(schcompile.faults(doc("{}"), bad)) == 0)
+    test.assert(list.len(schcompile.faults(doc("{\"\$ref\":\"https://x/bad\"}"), bad)) == 1)
+
+    test.case("an unknown keyword is refused only when asked")
+    var strict = schcompile.default_options()
+    strict.refuse_unknown_keywords = true
+    test.assert(list.len(schcompile.faults(doc("{\"x-extra\":1}"), schcompile.registry())) == 0)
+    match schcompile.compile_with_options(doc("{\"title\":\"t\",\"\$comment\":\"c\"}"), schcompile.registry(), strict)
+        Ok(_)  => test.assert(true)
+        Err(_) => test.assert(false)
+
+@test
+fn test_references_resolve_by_rfc_3986() [io]
+    let reg = schcompile.with_document(schcompile.registry(),
+        "http://h/a/b/c.json",
+        doc("{\"\$defs\":{\"n\":{\"type\":\"integer\"}}}"))
+    let reg2 = schcompile.with_document(reg, "http://h/top", doc("{\"type\":\"string\"}"))
+    let reg3 = schcompile.with_document(reg2, "http://h/a/q?x=1", doc("{\"type\":\"boolean\"}"))
+    let reg4 = schcompile.with_document(reg3, "http://h/a/b/self?y", doc("{\"type\":\"null\"}"))
+    let reg5 = schcompile.with_document(reg4, "http://other/z", doc("{\"type\":\"array\"}"))
+    let reg6 = schcompile.with_document(reg5, "urn:example:thing", doc("{\"type\":\"object\"}"))
+
+    test.case("dot segments, an absolute path, a query, a network path and a scheme")
+    for (ref, instance) in [("../b/./c.json#/\$defs/n", "1"), ("/top", "\"s\""), ("../q?x=1", "true"),
+                            ("?y", "null"), ("//other/z", "[]"), ("urn:example:thing", "{}"),
+                            ("c.json#/%24defs/n", "2"), ("../../a/b/c.json#/%24DEFS/n", "")]
+        let schema = "{\"\$id\":\"http://h/a/b/self\",\"\$ref\":\"${ref}\"}"
+        test.case(ref)
+        match schcompile.compile_with(doc(schema), reg6)
+            Ok(s)  => test.assert(instance != "" and schvalidate.is_valid(s, doc(instance)))
+            Err(f) => test.assert(instance == "" and f.kind == SchUnresolvedRef)
+
+    test.case("a relative reference against an authority with an empty path")
+    let bare = schcompile.with_document(schcompile.registry(), "http://h/x", doc("{\"const\":1}"))
+    match schcompile.compile_with(doc("{\"\$id\":\"http://h\",\"\$ref\":\"x\"}"), bare)
+        Ok(s)  => test.assert(schvalidate.is_valid(s, doc("1")))
+        Err(_) => test.assert(false)
+
+    test.case("a relative reference against a base with no slash, and a colon in a path segment")
+    let rel = schcompile.with_document(schcompile.registry(), "y", doc("{\"const\":2}"))
+    match schcompile.compile_with(doc("{\"\$id\":\"x\",\"\$ref\":\"y\"}"), rel)
+        Ok(s)  => test.assert(schvalidate.is_valid(s, doc("2")))
+        Err(_) => test.assert(false)
+    test.assert(schcompile.external_refs(doc("{\"\$ref\":\"1a:b\"}")) == ["1a:b"])
+    test.assert(schcompile.external_refs(doc("{\"\$ref\":\"a/../../b\"}")) == ["b"])
+    test.assert(schcompile.external_refs(doc("{\"\$ref\":\"http://h/a/..\"}")) == ["http://h/"])
+    test.assert(schcompile.external_refs(doc("{\"\$ref\":\"http://h/a/.\"}")) == ["http://h/a/"])
+
+    test.case("a fragment is percent-decoded, in either case, and a bad escape is kept")
+    let escaped = compiled("{\"\$defs\":{\"Jj%zz\":{\"const\":1}},\"\$ref\":\"#/\$defs/%4A%6a%zz\"}")
+    test.assert(schvalidate.is_valid(escaped, doc("1")))
+    test.assert(schvalidate.is_valid(escaped, doc("2")) == false)
+
+    test.case("the fetch loop follows a fetched document's own references")
+    let first = schcompile.with_document(schcompile.registry(), "http://h/one", doc("{\"\$ref\":\"two\"}"))
+    test.assert(schcompile.missing_refs(doc("{\"\$ref\":\"http://h/one\"}"), first) == ["http://h/two"])
+    test.assert(schcompile.document_uris(schcompile.with_document(first, "http://h/one#x", doc("{}")))
+                == ["http://h/one"])
+
+@test
+fn test_the_dynamic_scope() [io]
+    test.case("with no resource in scope, a dynamic reference is its static target")
+    let s = compiled("{\"\$defs\":{\"x\":{\"\$dynamicAnchor\":\"a\",\"type\":\"string\"}},\"\$dynamicRef\":\"#a\"}")
+    test.assert(s.uses_dynamic_ref)
+    test.assert(schvalidate.is_valid(s, doc("\"s\"")))
+    test.assert(schvalidate.is_valid(s, doc("1")) == false)
+
+@test
+fn test_the_output_the_suites_do_not_read() [io]
+    test.case("a valid output has no first error, and its basic form lists annotations")
+    let out = schvalidate.validate(compiled("{\"\$id\":\"https://x/s\",\"title\":\"T\"}"), doc("1"))
+    match schvalidate.first_error(out)
+        Some(_) => test.assert(false)
+        None    => test.assert(true)
+    match schvalidate.annotation(out, "", "description")
+        Some(_) => test.assert(false)
+        None    => test.assert(true)
+    let basic = schvalidate.basic_output(out)
+    test.assert(json.stringify(basic) == "{\"valid\":true,\"annotations\":[{\"keywordLocation\":\"/title\",\"instanceLocation\":\"\",\"annotation\":\"T\"}]}")
+
+    test.case("an invalid one names the absolute location when there is one")
+    let bad = schvalidate.validate(compiled("{\"\$id\":\"https://x/s\",\"type\":\"string\"}"), doc("1"))
+    test.assert(json.stringify(schvalidate.basic_output(bad))
+                == "{\"valid\":false,\"errors\":[{\"keywordLocation\":\"/type\",\"absoluteKeywordLocation\":\"https://x/s#/type\",\"instanceLocation\":\"\",\"error\":\"expected string, found number\"}]}")
+    test.assert(schvalidate.error_text(bad.errors[0]) == "expected string, found number")
+
+    test.case("the messages say what failed")
+    let all = "{\"properties\":{\"n\":{\"multipleOf\":2,\"maximum\":1,\"exclusiveMaximum\":1,\"minimum\":5,\"exclusiveMinimum\":5},\"s\":{\"maxLength\":1,\"minLength\":5,\"pattern\":\"^x\",\"format\":\"date\"},\"a\":{\"maxItems\":0,\"minItems\":5,\"uniqueItems\":true,\"contains\":{\"type\":\"null\"},\"maxContains\":0},\"o\":{\"maxProperties\":0,\"minProperties\":5,\"dependentRequired\":{\"k\":[\"j\"]}},\"e\":{\"enum\":[1],\"const\":1,\"not\":{},\"oneOf\":[{},{}],\"anyOf\":[false]},\"b\":{\"prefixItems\":[false],\"items\":false},\"c\":{\"contains\":{\"type\":\"null\"},\"minContains\":2},\"u\":{\"unevaluatedProperties\":false}}}"
+    var strict = schcompile.default_options()
+    strict.assert_formats = true
+    match schcompile.compile_with_options(doc(all), schcompile.registry(), strict)
+        Err(_) =>
+            test.assert(false)
+        Ok(s)  =>
+            let inst = "{\"n\":3,\"s\":\"yy\",\"a\":[1,1],\"o\":{\"k\":1},\"e\":2,\"b\":[1,2],\"c\":[null],\"u\":{\"z\":1}}"
+            let o = schvalidate.validate(s, doc(inst))
+            let texts = list.map(o.errors, u => schvalidate.error_text(u))
+            for want in ["/n: 3 is not a multiple of 2", "/n: 3 is greater than the maximum of 1",
+                         "/n: 3 is not less than the exclusive maximum of 1", "/n: 3 is less than the minimum of 5",
+                         "/n: 3 is not greater than the exclusive minimum of 5",
+                         "/s: expected at most 1 characters, found 2", "/s: expected at least 5 characters, found 2",
+                         "/s: \"yy\" does not match \"^x\"", "/s: \"yy\" is not a valid date",
+                         "/a: expected at most 0 items, found 2", "/a: expected at least 5 items, found 2",
+                         "/a: items 0 and 1 are equal", "/a: no item matches the contains schema",
+                         "/o: expected at most 0 properties, found 1", "/o: expected at least 5 properties, found 1",
+                         "/o: property \"k\" requires property \"j\"", "/e: 2 is not one of [1]", "/e: 2 is not 1",
+                         "/e: 2 matches the schema it must not match",
+                         "/e: 2 matches 2 of the oneOf schemas, not exactly one",
+                         "/e: 2 matches none of the anyOf schemas", "/e: no value is allowed here",
+                         "/b/0: the item at /b/0 is not allowed", "/b/1: the item at /b/1 is not allowed",
+                         "/c: expected at least 2 items to match contains, found 1",
+                         "/u/z: the property at /u/z is not allowed"]
+                test.case(want)
+                test.assert(list.contains(texts, want))
+            let max = schvalidate.validate(s, doc("{\"a\":[null,null]}"))
+            test.assert(list.contains(list.map(max.errors, u => u.message),
+                                      "expected at most 0 items to match contains, found 2"))
+
+    test.case("a schema compiled to assert formats does so in validate and is_valid")
+    var formats = schcompile.default_options()
+    formats.assert_formats = true
+    match schcompile.compile_with_options(doc("{\"format\":\"ipv4\"}"), schcompile.registry(), formats)
+        Ok(s)  =>
+            test.assert(schvalidate.is_valid(s, doc("\"1.2.3.4\"")))
+            test.assert(schvalidate.is_valid(s, doc("\"1.2.3\"")) == false)
+        Err(_) => test.assert(false)
+
+@test
+fn test_every_fault_kind_has_a_name_and_a_message() [io]
+    let kinds = [SchNotASchema, SchBadKeywordValue, SchUnknownType, SchBadRef, SchUnresolvedRef, SchRefCycle, SchBadId,
+                 SchBadAnchor, SchBadPattern, SchUnsupportedVocabulary, SchUnknownDialect, SchDepthLimit,
+                 SchUnknownKeyword]
+    var names: [Str] = []
+    for k in kinds
+        let n = scherror.kind_name(k)
+        test.assert(list.contains(names, n) == false)
+        list.push(names, n)
+    test.assert(scherror.message(scherror.fault(SchNotASchema, "", "", "3")) == "not-a-schema at the root: 3")
+    test.assert(scherror.fault(SchBadRef, "/\$ref", "", "\"a b\"").message() == "bad-ref at /\$ref: \"a b\"")
+    test.assert(schvocab.is_implemented(SchVocabFormatAssertion))
+    test.assert(schformat.formats().has_builtins == false)
