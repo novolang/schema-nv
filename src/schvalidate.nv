@@ -609,8 +609,7 @@ fn run(s: schcompile.SchSchema, instance: JsonValueH, formats: schformat.SchForm
     if s.id != ""
         list.push(scope, s.id)
     let at = At { base: s.id, rptr: "", kloc: "", iloc: "", scope: scope, rooted: true }
-    let root = s.index.docs[0]
-    eval(r, root, at, instance, "")
+    eval(r, s.index.docs[0], at, instance, "")
 
 // The formats `validate` asserts: the built-in ones when the schema was
 // compiled with `assert_formats`, and none otherwise.
