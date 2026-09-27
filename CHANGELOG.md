@@ -4,7 +4,7 @@ Every published version, newest first. This file is on the publish
 allow-list, so it travels with the package: it is the only thing a
 consumer deciding whether to upgrade can read.
 
-## 0.1.0 — 2026-09-27
+## 0.1.0 — 2026-09-28
 
 The first implementation of the interface published as 0.0.1: the
 compile, the registry, validation with every failure's three locations,
@@ -51,11 +51,10 @@ These break code written against 0.0.x.
 
 ### Toolchain
 
-- The toolchain floor is 0.13.0. An annotation holds the schema's own
-  value, which stays readable after the compiled schema is dropped from
-  that release on. A format check is
-  called where it is read from the registry, as `checks[i](text)`,
-  because a name for it adds nothing.
+- The toolchain floor is 0.14.0.  The bodies target novo 0.14.0 and
+  carry no workaround for a compiler defect.
+- An annotation holds the schema's own value, which stays readable
+  after the compiled schema is dropped.
 
 ## 0.0.3 — 2026-09-25
 

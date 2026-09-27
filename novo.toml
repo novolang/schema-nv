@@ -22,7 +22,7 @@ repository  = "https://github.com/novolang/schema-nv"
 maintainers = ["novo-lang"]
 # 0.13.0 is the first toolchain on which a value `json.get` answers
 # keeps its document alive, which the annotations rely on.
-novo        = ">= 0.13.0"
+novo        = ">= 0.14.0"
 
 # A library: no `main`, so `novo pkg build` type-checks and
 # effect-checks every module under `src/` and writes no binary.
