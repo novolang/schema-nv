@@ -1,0 +1,49 @@
+// hostile_tests.nv — schemas that refer to themselves, and instances
+// nested far deeper than a document is.
+
+use std.test
+use std.json
+use schcompile
+use schvalidate
+
+fn schema_of(text: Str) -> ?SchSchema
+    match json.parse(text)
+        None    => None
+        Some(d) =>
+            match schcompile.compile(d)
+                Err(_) => None
+                Ok(s)  => Some(s)
+
+fn instance(text: Str) -> JsonValueH
+    json.parse(text) ?? json.null()
+
+@test
+fn test_a_schema_that_refers_to_itself_without_progress_is_refused() [io]
+    test.case("a bare self reference")
+    test.assert(schema_of("{\"\$ref\": \"#\"}") == None)
+    test.case("a reference through allOf")
+    test.assert(schema_of("{\"allOf\": [{\"\$ref\": \"#\"}]}") == None)
+    test.case("a pair of definitions that refer to each other")
+    test.assert(schema_of("{\"\$ref\": \"#/\$defs/a\", \"\$defs\": {\"a\": {\"\$ref\": \"#/\$defs/b\"}, \"b\": {\"\$ref\": \"#/\$defs/a\"}}}") == None)
+
+@test
+fn test_a_recursive_schema_over_a_deep_instance_is_bounded() [io]
+    match schema_of("{\"type\": \"array\", \"items\": {\"\$ref\": \"#\"}}")
+        None    => test.assert(false)
+        Some(s) =>
+            test.case("a hundred levels of arrays are valid")
+            test.assert(schvalidate.is_valid(s, instance("[".repeat(100) + "]".repeat(100))))
+            test.case("so are ten thousand")
+            test.assert(schvalidate.is_valid(s, instance("[".repeat(10000) + "]".repeat(10000))))
+            test.case("and a number where an array is wanted is not")
+            test.assert(not schvalidate.is_valid(s, instance("[[1]]")))
+
+@test
+fn test_a_pattern_that_backtracks_is_bounded() [io]
+    match schema_of("{\"pattern\": \"^(a+)+\\$\"}")
+        None    => test.assert(false)
+        Some(s) =>
+            test.case("a string that nearly matches does not match")
+            test.assert(not schvalidate.is_valid(s, instance("\"" + "a".repeat(40) + "b\"")))
+            test.case("one that matches does")
+            test.assert(schvalidate.is_valid(s, instance("\"" + "a".repeat(40) + "\"")))
