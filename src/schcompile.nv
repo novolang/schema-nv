@@ -539,9 +539,9 @@ fn walk(var w: Walk, node: JsonValueH, doc: Int, ptr: Str, base_in: Str, rptr_in
                     base = without_fragment(resolved)
                     rptr = ""
                     list.push(w.ids, base)
-                    add_resource(w, base, doc, ptr, json.stringify(id))
+                    add_resource(var w, base, doc, ptr, json.stringify(id))
     for key in json.keys(node)
-        check_keyword(w, node, key, doc, ptr, base, rptr, depth)
+        check_keyword(var w, node, key, doc, ptr, base, rptr, depth)
 
 // Check one keyword of a schema object, and walk the subschemas it
 // holds.
@@ -557,7 +557,7 @@ fn check_keyword(var w: Walk, node: JsonValueH, key: Str, doc: Int, ptr: Str, ba
     if key == "unevaluatedItems" or key == "unevaluatedProperties"
         w.uses_unevaluated = true
     if list.contains(single_schema_keywords(), key)
-        walk(w, v, doc, at, base, at_r, depth + 1)
+        walk(var w, v, doc, at, base, at_r, depth + 1)
         if list.contains(in_place_keywords(), key)
             list.push(w.edge_from, node_key(doc, ptr))
             list.push(w.edge_to, node_key(doc, at))
@@ -575,7 +575,7 @@ fn check_keyword(var w: Walk, node: JsonValueH, key: Str, doc: Int, ptr: Str, ba
                         base,
                         child_ptr(at_r, name),
                         reason)
-            walk(w,
+            walk(var w,
                 json.get(v, name) ?? json.null(),
                 doc,
                 child_ptr(at, name),
@@ -591,7 +591,7 @@ fn check_keyword(var w: Walk, node: JsonValueH, key: Str, doc: Int, ptr: Str, ba
             return
         for i in 0..(json.len(v) ?? 0)
             let item_ptr = child_ptr(at, "${i}")
-            walk(w,
+            walk(var w,
                 json.index(v, i) ?? json.null(),
                 doc,
                 item_ptr,
@@ -602,7 +602,7 @@ fn check_keyword(var w: Walk, node: JsonValueH, key: Str, doc: Int, ptr: Str, ba
                 list.push(w.edge_from, node_key(doc, ptr))
                 list.push(w.edge_to, node_key(doc, item_ptr))
     else
-        check_value(w, key, v, doc, ptr, base, rptr)
+        check_value(var w, key, v, doc, ptr, base, rptr)
 
 // Check the value of a keyword that holds no subschema.
 fn check_value(var w: Walk, key: Str, v: JsonValueH, doc: Int, ptr: Str, base: Str, rptr: Str)
@@ -633,7 +633,7 @@ fn check_value(var w: Walk, key: Str, v: JsonValueH, doc: Int, ptr: Str, base: S
                 if not anchor_ok(name)
                     fail(w, SchBadAnchor, doc, at, base, at_r, text)
                 else
-                    add_anchor(w, base + "#" + name, doc, ptr, rptr, key == "\$dynamicAnchor", text)
+                    add_anchor(var w, base + "#" + name, doc, ptr, rptr, key == "\$dynamicAnchor", text)
     else if key == "\$schema"
         let dialect = json.to_str(v) ?? ""
         if dialect != schvocab.DIALECT_2020_12 and dialect != schvocab.DIALECT_2020_12 + "#"
@@ -661,7 +661,7 @@ fn check_value(var w: Walk, key: Str, v: JsonValueH, doc: Int, ptr: Str, base: S
                     child_ptr(at_r, uri),
                     json.stringify(json.string(uri)))
     else if key == "type"
-        check_type(w, v, doc, at, base, at_r)
+        check_type(var w, v, doc, at, base, at_r)
     else if key == "enum" and kind != "array" or key == "required" and not all_strings(v)
         fail(w, SchBadKeywordValue, doc, at, base, at_r, text)
     else if key == "multipleOf" and (kind != "number" or (json.to_float(v) ?? 0.0) <= 0.0)
@@ -706,8 +706,8 @@ fn check_type(var w: Walk, v: JsonValueH, doc: Int, at: Str, base: Str, at_r: St
 fn walk_document(var w: Walk, document: JsonValueH, uri: Str)
     let doc = list.len(w.docs)
     list.push(w.docs, document)
-    add_resource(w, uri, doc, "", json.stringify(json.string(uri)))
-    walk(w, document, doc, "", uri, "", 0)
+    add_resource(var w, uri, doc, "", json.stringify(json.string(uri)))
+    walk(var w, document, doc, "", uri, "", 0)
 
 // ── Resolving ────────────────────────────────────────────────────────
 
@@ -754,9 +754,9 @@ fn index_of(w: Walk) -> SchIndex
 // Walk a schema and every registered document.
 fn walk_all(document: JsonValueH, r: SchRegistry, options: SchOptions) -> Walk
     var w = new_walk(options)
-    walk_document(w, document, "")
+    walk_document(var w, document, "")
     for i in 0..r.count
-        walk_document(w, r.documents[i], r.uris[i])
+        walk_document(var w, r.documents[i], r.uris[i])
     w
 
 // Resolve every reference in the schema, then in each document a
@@ -788,7 +788,7 @@ fn resolve_refs(var w: Walk) -> [Int]
 fn cycle(w: Walk) -> ?Str
     var state: [Str] = []
     var marks: [Int] = []
-    visit(w, node_key(0, ""), state, marks)
+    visit(w, node_key(0, ""), var state, var marks)
 
 // Depth-first search for a back edge.  `state` and `marks` record each
 // key seen: 1 while on the current path, 2 once finished.
@@ -806,7 +806,7 @@ fn visit(w: Walk, key: Str, var state: [Str], var marks: [Int]) -> ?Str
             if seen >= 0 and marks[seen] == 1
                 return Some(to)
             if seen < 0
-                if let Some(found) = visit(w, to, state, marks)
+                if let Some(found) = visit(w, to, var state, var marks)
                     return Some(found)
     marks[me] = 2
     None
@@ -816,7 +816,7 @@ fn visit(w: Walk, key: Str, var state: [Str], var marks: [Int]) -> ?Str
 fn compile_faults(document: JsonValueH, r: SchRegistry,
                   options: SchOptions) -> ([scherror.SchFault], Walk)
     var w = walk_all(document, r, options)
-    let reached = resolve_refs(w)
+    let reached = resolve_refs(var w)
     if json.get(document, "\$schema") == None and options.default_dialect != schvocab.DIALECT_2020_12
         fail(w, SchUnknownDialect, 0, "", "", "", json.stringify(json.string(options.default_dialect)))
     if list.len(w.faults) == 0

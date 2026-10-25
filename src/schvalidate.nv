@@ -272,25 +272,25 @@ fn object(r: Run, node: JsonValueH, at0: At, inst: JsonValueH) -> Eval
     var e = holds()
     if let Some(ref) = json.get_str(node, "\$ref")
         if let Some(t) = schcompile.target_of(r.ix, at.base, ref)
-            absorb(e, follow(r, t, at, "\$ref", inst), true)
+            absorb(var e, follow(r, t, at, "\$ref", inst), true)
     if let Some(ref) = json.get_str(node, "\$dynamicRef")
         if let Some(t) = schcompile.target_of(r.ix, at.base, ref)
-            absorb(e, follow(r, dynamic_target(r, at, ref, t), at, "\$dynamicRef", inst), true)
+            absorb(var e, follow(r, dynamic_target(r, at, ref, t), at, "\$dynamicRef", inst), true)
     if not e.valid and not r.collect
         return e
-    assertions(e, r, node, at, inst)
+    assertions(var e, r, node, at, inst)
     if not e.valid and not r.collect
         return e
-    in_place(e, r, node, at, inst)
+    in_place(var e, r, node, at, inst)
     if not e.valid and not r.collect
         return e
     let kind = json.type_of(inst)
     if kind == "array"
-        array_members(e, r, node, at, inst)
+        array_members(var e, r, node, at, inst)
     if kind == "object"
-        object_members(e, r, node, at, inst)
+        object_members(var e, r, node, at, inst)
     if r.collect
-        annotations(e, r, node, at)
+        annotations(var e, r, node, at)
     e
 
 // The keywords about the instance itself.
@@ -315,12 +315,12 @@ fn assertions(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
         if not json.equals(inst, c)
             fail(e, r, at, "const", "${show(inst)} is not ${show(c)}")
     match json.type_of(inst)
-        "number" => numbers(e, r, node, at, inst)
-        "string" => strings(e, r, node, at, inst)
-        "array"  => counts(e, r, node, at, "maxItems", "minItems", json.len(inst) ?? 0, "items")
-        "object" => objects(e, r, node, at, inst)
+        "number" => numbers(var e, r, node, at, inst)
+        "string" => strings(var e, r, node, at, inst)
+        "array"  => counts(var e, r, node, at, "maxItems", "minItems", json.len(inst) ?? 0, "items")
+        "object" => objects(var e, r, node, at, inst)
         _        => ()
-    format(e, r, node, at, inst)
+    format(var e, r, node, at, inst)
 
 // A keyword's value as a number, or `None`.
 fn num(node: JsonValueH, kw: Str) -> ?Float
@@ -384,7 +384,7 @@ fn counts(var e: Eval, r: Run, node: JsonValueH, at: At, max_kw: Str, min_kw: St
 // `maxLength`, `minLength` and `pattern`.  A length counts characters,
 // not bytes.
 fn strings(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
-    counts(e, r, node, at, "maxLength", "minLength", json.len(inst) ?? 0, "characters")
+    counts(var e, r, node, at, "maxLength", "minLength", json.len(inst) ?? 0, "characters")
     if let Some(p) = json.get_str(node, "pattern")
         if not regex.is_match(p, json.to_str(inst) ?? "")
             fail(e, r, at, "pattern", "${show(inst)} does not match ${quoted(p)}")
@@ -401,7 +401,7 @@ fn format(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
 // `required` and `dependentRequired`.
 fn objects(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
     let keys = json.keys(inst)
-    counts(e, r, node, at, "maxProperties", "minProperties", list.len(keys), "properties")
+    counts(var e, r, node, at, "maxProperties", "minProperties", list.len(keys), "properties")
     if let Some(req) = json.get(node, "required")
         for i in 0..(json.len(req) ?? 0)
             let name = json.to_str(json.index(req, i) ?? json.null()) ?? ""
@@ -424,13 +424,13 @@ fn objects(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
 fn in_place(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
     if let Some(all) = json.get(node, "allOf")
         for i in 0..(json.len(all) ?? 0)
-            absorb(e,
+            absorb(var e,
                 eval(r, json.index(all, i) ?? json.null(), into_sub(at, "allOf", "${i}"), inst, "allOf"),
                 true)
     if let Some(any) = json.get(node, "anyOf")
-        alternatives(e, r, any, at, inst, "anyOf")
+        alternatives(var e, r, any, at, inst, "anyOf")
     if let Some(one) = json.get(node, "oneOf")
-        alternatives(e, r, one, at, inst, "oneOf")
+        alternatives(var e, r, one, at, inst, "oneOf")
     if let Some(n) = json.get(node, "not")
         let fast = Run { ix: r.ix, formats: r.formats, collect: false }
         if eval(fast, n, into(at, "not"), inst, "not").valid
@@ -438,17 +438,17 @@ fn in_place(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
     if let Some(cond) = json.get(node, "if")
         let tried = eval(r, cond, into(at, "if"), inst, "if")
         if tried.valid
-            absorb(e, tried, true)
+            absorb(var e, tried, true)
             if let Some(t) = json.get(node, "then")
-                absorb(e, eval(r, t, into(at, "then"), inst, "then"), true)
+                absorb(var e, eval(r, t, into(at, "then"), inst, "then"), true)
         else if let Some(f) = json.get(node, "else")
-            absorb(e, eval(r, f, into(at, "else"), inst, "else"), true)
+            absorb(var e, eval(r, f, into(at, "else"), inst, "else"), true)
     if json.type_of(inst) == "object"
         if let Some(deps) = json.get(node, "dependentSchemas")
             let keys = json.keys(inst)
             for p in json.keys(deps)
                 if list.contains(keys, p)
-                    absorb(e, eval(r, json.get(deps, p) ?? json.null(), into_sub(at, "dependentSchemas", p), inst,
+                    absorb(var e, eval(r, json.get(deps, p) ?? json.null(), into_sub(at, "dependentSchemas", p), inst,
                                    "dependentSchemas"),
                                    true)
 
@@ -472,7 +472,7 @@ fn alternatives(var e: Eval, r: Run, options: JsonValueH, at: At, inst: JsonValu
     else
         for one in tried
             if one.valid
-                absorb(e, one, true)
+                absorb(var e, one, true)
 
 // The array keywords that apply to its items, then `unevaluatedItems`.
 fn array_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH)
@@ -481,14 +481,14 @@ fn array_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH
     if let Some(prefix) = json.get(node, "prefixItems")
         first = math.min(n, json.len(prefix) ?? 0)
         for i in 0..first
-            absorb(e, eval(r, json.index(prefix, i) ?? json.null(), member(into_sub(at, "prefixItems", "${i}"), "${i}"),
+            absorb(var e, eval(r, json.index(prefix, i) ?? json.null(), member(into_sub(at, "prefixItems", "${i}"), "${i}"),
                            json.index(inst, i) ?? json.null(), "prefixItems"),
                            false)
         if first > e.items
             e.items = first
     if let Some(each) = json.get(node, "items")
         for i in first..n
-            absorb(e, eval(r,
+            absorb(var e, eval(r,
                 each,
                 member(into(at, "items"), "${i}"),
                 json.index(inst, i) ?? json.null(),
@@ -496,16 +496,16 @@ fn array_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValueH
             false)
         e.all_items = true
     if json.get_bool(node, "uniqueItems") == Some(true)
-        unique(e, r, at, inst, n)
+        unique(var e, r, at, inst, n)
     if let Some(c) = json.get(node, "contains")
-        contains(e, r, node, c, at, inst, n)
+        contains(var e, r, node, c, at, inst, n)
     if let Some(u) = json.get(node, "unevaluatedItems")
         var start = e.items
         if e.all_items
             start = n
         for i in start..n
             if not list.contains(e.hits, i)
-                absorb(e, eval(r, u, member(into(at, "unevaluatedItems"), "${i}"), json.index(inst, i) ?? json.null(),
+                absorb(var e, eval(r, u, member(into(at, "unevaluatedItems"), "${i}"), json.index(inst, i) ?? json.null(),
                                "unevaluatedItems"),
                                false)
         e.all_items = true
@@ -558,20 +558,20 @@ fn object_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValue
         if let Some(ps) = props
             if let Some(sub) = json.get(ps, key)
                 matched = true
-                absorb(e,
+                absorb(var e,
                     eval(r, sub, member(into_sub(at, "properties", key), key), value, "properties"),
                     false)
         if let Some(pp) = patterns
             for p in json.keys(pp)
                 if regex.is_match(p, key)
                     matched = true
-                    absorb(e, eval(r, json.get(pp, p) ?? json.null(), member(into_sub(at, "patternProperties", p), key),
+                    absorb(var e, eval(r, json.get(pp, p) ?? json.null(), member(into_sub(at, "patternProperties", p), key),
                                    value, "patternProperties"),
                                    false)
         if not matched
             if let Some(extra) = json.get(node, "additionalProperties")
                 matched = true
-                absorb(e, eval(r,
+                absorb(var e, eval(r,
                     extra,
                     member(into(at, "additionalProperties"), key),
                     value,
@@ -580,13 +580,13 @@ fn object_members(var e: Eval, r: Run, node: JsonValueH, at: At, inst: JsonValue
         if matched and not list.contains(e.props, key)
             list.push(e.props, key)
         if let Some(names) = json.get(node, "propertyNames")
-            absorb(e,
+            absorb(var e,
                 eval(r, names, member(into(at, "propertyNames"), key), json.string(key), "propertyNames"),
                 false)
     if let Some(u) = json.get(node, "unevaluatedProperties")
         for key in keys
             if not list.contains(e.props, key)
-                absorb(e, eval(r, u, member(into(at, "unevaluatedProperties"), key), json.get(inst, key) ?? json.null(),
+                absorb(var e, eval(r, u, member(into(at, "unevaluatedProperties"), key), json.get(inst, key) ?? json.null(),
                                "unevaluatedProperties"),
                                false)
                 list.push(e.props, key)
@@ -599,7 +599,7 @@ fn annotations(var e: Eval, r: Run, node: JsonValueH, at: At)
     for key in json.keys(node)
         let known = schvocab.keyword_vocabulary(key)
         if known == None or not schvocab.keyword_is_asserted(key)
-            note(e, r, at, key, json.get(node, key) ?? json.null())
+            note(var e, r, at, key, json.get(node, key) ?? json.null())
 
 // Run a validation.
 fn run(s: schcompile.SchSchema, instance: JsonValueH, formats: schformat.SchFormats,

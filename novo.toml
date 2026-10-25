@@ -1,6 +1,6 @@
 [package]
 name        = "schema-nv"
-version     = "0.1.0"
+version     = "0.1.1"
 description = "JSON Schema 2020-12's validation and applicator vocabularies over the standard library's JSON value, with reasons: every failure names the instance location, the schema location and the keyword, as a list rather than a first failure.  Compile once, validate many; $ref resolved inside the document and across a set the caller registered, with the core naming what it needs so the host can fetch it; format as a registry the caller extends."
 license     = "Apache-2.0"
 
@@ -22,7 +22,7 @@ repository  = "https://github.com/novolang/schema-nv"
 maintainers = ["novo-lang"]
 # 0.13.0 is the first toolchain on which a value `json.get` answers
 # keeps its document alive, which the annotations rely on.
-novo        = ">= 0.14.0"
+novo        = ">= 0.21.1"
 
 # A library: no `main`, so `novo pkg build` type-checks and
 # effect-checks every module under `src/` and writes no binary.
