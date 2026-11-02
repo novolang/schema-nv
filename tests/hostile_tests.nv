@@ -33,8 +33,10 @@ fn test_a_recursive_schema_over_a_deep_instance_is_bounded() [io]
         Some(s) =>
             test.case("a hundred levels of arrays are valid")
             test.assert(schvalidate.is_valid(s, instance("[".repeat(100) + "]".repeat(100))))
-            test.case("so are ten thousand")
-            test.assert(schvalidate.is_valid(s, instance("[".repeat(10000) + "]".repeat(10000))))
+            // json.parse takes 512 levels and no more (std.json § Nesting), so
+            // 512 is the deepest instance a document can hand to the validator.
+            test.case("so are the 512 the parser accepts")
+            test.assert(schvalidate.is_valid(s, instance("[".repeat(512) + "]".repeat(512))))
             test.case("and a number where an array is wanted is not")
             test.assert(not schvalidate.is_valid(s, instance("[[1]]")))
 
